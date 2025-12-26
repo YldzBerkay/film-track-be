@@ -10,6 +10,8 @@ import aiRoutes from './ai.routes';
 import notificationRoutes from './notification.routes';
 import badgeRoutes from './badge.routes';
 import analyticsRoutes from './analytics.routes';
+import watchlistRoutes from './watchlist.routes';
+import watchedListRoutes from './watched-list.routes';
 
 const router = Router();
 
@@ -25,5 +27,7 @@ router.use('/ai', aiRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/badges', badgeRoutes);
 router.use('/analytics', analyticsRoutes);
+router.use('/watchlists', watchlistRoutes);
+router.use('/watched', watchedListRoutes);
 
 export default router;

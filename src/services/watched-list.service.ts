@@ -1,0 +1,254 @@
+import { WatchedList, IWatchedList, IWatchedItem } from '../models/watched-list.model';
+import mongoose from 'mongoose';
+
+const DEFAULT_WATCHED_LIST_NAME = 'Watched';
+
+interface AddItemData {
+    tmdbId: number;
+    mediaType: 'movie' | 'tv';
+    title: string;
+    posterPath?: string;
+    runtime: number;
+    rating?: number;
+    watchedAt?: Date;
+}
+
+// Plain object type for lean() results
+type WatchedListLean = {
+    _id: mongoose.Types.ObjectId;
+    userId: mongoose.Types.ObjectId;
+    name: string;
+    isDefault: boolean;
+    items: IWatchedItem[];
+    totalRuntime: number;
+    createdAt: Date;
+    updatedAt: Date;
+};
+
+export class WatchedListService {
+    /**
+     * Create the default watched list for a new user
+     */
+    static async createDefaultWatchedList(userId: string): Promise<IWatchedList> {
+        const watchedList = new WatchedList({
+            userId: new mongoose.Types.ObjectId(userId),
+            name: DEFAULT_WATCHED_LIST_NAME,
+            isDefault: true,
+            items: [],
+            totalRuntime: 0
+        });
+        return watchedList.save();
+    }
+
+    /**
+     * Get user's default watched list
+     */
+    static async getUserWatchedList(userId: string): Promise<WatchedListLean | null> {
+        return WatchedList.findOne({
+            userId: new mongoose.Types.ObjectId(userId),
+            isDefault: true
+        }).lean<WatchedListLean | null>();
+    }
+
+    /**
+     * Ensure user has a default watched list (create if missing)
+     */
+    static async ensureDefaultWatchedList(userId: string): Promise<WatchedListLean | IWatchedList> {
+        const existing = await this.getUserWatchedList(userId);
+        if (existing) {
+            return existing;
+        }
+        return this.createDefaultWatchedList(userId);
+    }
+
+    /**
+     * Add an item to the watched list
+     */
+    static async addItem(userId: string, item: AddItemData): Promise<IWatchedList | null> {
+        // First ensure the list exists
+        await this.ensureDefaultWatchedList(userId);
+
+        // Check if item already exists
+        const existingItem = await WatchedList.findOne({
+            userId: new mongoose.Types.ObjectId(userId),
+            isDefault: true,
+            'items.tmdbId': item.tmdbId,
+            'items.mediaType': item.mediaType
+        });
+
+        if (existingItem) {
+            // Item already exists, update it instead
+            return WatchedList.findOneAndUpdate(
+                {
+                    userId: new mongoose.Types.ObjectId(userId),
+                    isDefault: true,
+                    'items.tmdbId': item.tmdbId,
+                    'items.mediaType': item.mediaType
+                },
+                {
+                    $set: {
+                        'items.$.rating': item.rating,
+                        'items.$.watchedAt': item.watchedAt || new Date()
+                    }
+                },
+                { new: true }
+            );
+        }
+
+        // Add new item and update total runtime
+        return WatchedList.findOneAndUpdate(
+            {
+                userId: new mongoose.Types.ObjectId(userId),
+                isDefault: true
+            },
+            {
+                $push: {
+                    items: {
+                        tmdbId: item.tmdbId,
+                        mediaType: item.mediaType,
+                        title: item.title,
+                        posterPath: item.posterPath,
+                        runtime: item.runtime,
+                        rating: item.rating,
+                        watchedAt: item.watchedAt || new Date(),
+                        addedAt: new Date()
+                    }
+                },
+                $inc: {
+                    totalRuntime: item.runtime
+                }
+            },
+            { new: true }
+        );
+    }
+
+    /**
+     * Update item rating
+     */
+    static async updateItemRating(
+        userId: string,
+        tmdbId: number,
+        mediaType: 'movie' | 'tv',
+        rating: number
+    ): Promise<IWatchedList | null> {
+        // Validate rating
+        if (rating < 0.5 || rating > 5 || rating % 0.5 !== 0) {
+            throw new Error('Rating must be between 0.5 and 5 in 0.5 increments');
+        }
+
+        return WatchedList.findOneAndUpdate(
+            {
+                userId: new mongoose.Types.ObjectId(userId),
+                isDefault: true,
+                'items.tmdbId': tmdbId,
+                'items.mediaType': mediaType
+            },
+            {
+                $set: {
+                    'items.$.rating': rating
+                }
+            },
+            { new: true }
+        );
+    }
+
+    /**
+     * Remove an item from the watched list
+     */
+    static async removeItem(
+        userId: string,
+        tmdbId: number,
+        mediaType: 'movie' | 'tv'
+    ): Promise<IWatchedList | null> {
+        // First get the item's runtime to subtract
+        const watchedList = await WatchedList.findOne({
+            userId: new mongoose.Types.ObjectId(userId),
+            isDefault: true
+        });
+
+        if (!watchedList) return null;
+
+        const item = watchedList.items.find(
+            i => i.tmdbId === tmdbId && i.mediaType === mediaType
+        );
+
+        if (!item) return watchedList;
+
+        return WatchedList.findOneAndUpdate(
+            {
+                userId: new mongoose.Types.ObjectId(userId),
+                isDefault: true
+            },
+            {
+                $pull: {
+                    items: { tmdbId, mediaType }
+                },
+                $inc: {
+                    totalRuntime: -item.runtime
+                }
+            },
+            { new: true }
+        );
+    }
+
+    /**
+     * Check if an item is watched
+     */
+    static async isWatched(
+        userId: string,
+        tmdbId: number,
+        mediaType: 'movie' | 'tv'
+    ): Promise<{ isWatched: boolean; rating?: number }> {
+        const watchedList = await WatchedList.findOne({
+            userId: new mongoose.Types.ObjectId(userId),
+            isDefault: true,
+            'items.tmdbId': tmdbId,
+            'items.mediaType': mediaType
+        }).select('items.$');
+
+        if (!watchedList || !watchedList.items.length) {
+            return { isWatched: false };
+        }
+
+        return {
+            isWatched: true,
+            rating: watchedList.items[0].rating
+        };
+    }
+
+    /**
+     * Get watch statistics
+     */
+    static async getStats(userId: string): Promise<{
+        totalRuntime: number;
+        totalMovies: number;
+        totalTvShows: number;
+        averageRating: number | null;
+    }> {
+        const watchedList = await this.getUserWatchedList(userId);
+
+        if (!watchedList || watchedList.items.length === 0) {
+            return {
+                totalRuntime: 0,
+                totalMovies: 0,
+                totalTvShows: 0,
+                averageRating: null
+            };
+        }
+
+        const movies = watchedList.items.filter(i => i.mediaType === 'movie');
+        const tvShows = watchedList.items.filter(i => i.mediaType === 'tv');
+        const ratings = watchedList.items
+            .filter(i => i.rating !== undefined && i.rating !== null)
+            .map(i => i.rating!);
+
+        return {
+            totalRuntime: watchedList.totalRuntime,
+            totalMovies: movies.length,
+            totalTvShows: tvShows.length,
+            averageRating: ratings.length > 0
+                ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
+                : null
+        };
+    }
+}

@@ -1,5 +1,7 @@
 import { User, IUser } from '../models/user.model';
 import { RefreshToken } from '../models/refresh-token.model';
+import { WatchlistService } from './watchlist.service';
+import { WatchedListService } from './watched-list.service';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
@@ -54,6 +56,10 @@ export class AuthService {
     });
 
     await user.save();
+
+    // Create default lists for the new user
+    await WatchlistService.createDefaultWatchlist(user._id.toString());
+    await WatchedListService.createDefaultWatchedList(user._id.toString());
 
     // Generate tokens
     const accessToken = this.generateAccessToken(user._id.toString());
