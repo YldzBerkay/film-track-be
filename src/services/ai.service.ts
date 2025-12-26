@@ -8,6 +8,11 @@ export interface MoodVector {
   joy: number;
   tension: number;
   intellect: number;
+  romance: number;
+  wonder: number;
+  nostalgia: number;
+  darkness: number;
+  inspiration: number;
 }
 
 export class AIService {
@@ -28,9 +33,24 @@ export class AIService {
     try {
       const client = this.getClient();
 
-      const systemPrompt = `You are a film analyst. Analyze the movie provided by the user. Rate it on 5 dimensions (adrenaline, melancholy, joy, tension, intellect) from 0 to 100. Return ONLY valid JSON without any markdown formatting or code blocks.`;
+      const systemPrompt = `You are an expert film psychologist specializing in emotional impact analysis. 
+Analyze the movie provided considering genre conventions, directorial tone, character arcs, and thematic weight.
 
-      const userPrompt = `Movie Title: ${title}${overview ? `\nSummary: ${overview}` : ''}\n\nAnalyze this movie and return a JSON object with exactly these keys: adrenaline, melancholy, joy, tension, intellect. Each value must be a number between 0 and 100.`;
+Rate on 10 dimensions (0-100):
+1. Adrenaline: Action intensity, excitement peaks
+2. Melancholy: Sadness depth, emotional gravity  
+3. Joy: Happiness, comedic relief, feel-good factor
+4. Tension: Suspense buildup, anxiety induction
+5. Intellect: Thought provocation, complexity
+6. Romance: Love themes, relationship focus
+7. Wonder: Awe, fantasy escapism, visual spectacle
+8. Nostalgia: Period authenticity, memory triggers
+9. Darkness: Moral ambiguity, noir elements, dystopia
+10. Inspiration: Motivational impact, triumph themes
+
+Return ONLY valid JSON without any markdown formatting.`;
+
+      const userPrompt = `Movie Title: ${title}${overview ? `\nSummary: ${overview}` : ''}\n\nAnalyze this movie and return a JSON object with exactly these keys: adrenaline, melancholy, joy, tension, intellect, romance, wonder, nostalgia, darkness, inspiration. Each value must be a number between 0 and 100.`;
 
       const response = await client.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -55,7 +75,12 @@ export class AIService {
         melancholy: Math.max(0, Math.min(100, parsed.melancholy || 0)),
         joy: Math.max(0, Math.min(100, parsed.joy || 0)),
         tension: Math.max(0, Math.min(100, parsed.tension || 0)),
-        intellect: Math.max(0, Math.min(100, parsed.intellect || 0))
+        intellect: Math.max(0, Math.min(100, parsed.intellect || 0)),
+        romance: Math.max(0, Math.min(100, parsed.romance || 0)),
+        wonder: Math.max(0, Math.min(100, parsed.wonder || 0)),
+        nostalgia: Math.max(0, Math.min(100, parsed.nostalgia || 0)),
+        darkness: Math.max(0, Math.min(100, parsed.darkness || 0)),
+        inspiration: Math.max(0, Math.min(100, parsed.inspiration || 0))
       };
     } catch (error) {
       console.error('OpenAI Analysis Error:', error);

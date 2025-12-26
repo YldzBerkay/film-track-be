@@ -99,4 +99,30 @@ export class RecommendationController {
             });
         }
     }
+
+    static async getMoodBasedRecommendations(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user?.id;
+            if (!userId) {
+                return res.status(401).json({ message: 'Unauthorized' });
+            }
+
+            const mode = (req.query.mode as 'match' | 'shift') || 'match';
+            const limit = parseInt(req.query.limit as string) || 10;
+            const includeWatched = req.query.includeWatched === 'true';
+
+            const recommendations = await RecommendationService.getMoodBasedRecommendations(userId, mode, limit, includeWatched);
+
+            return res.status(200).json({
+                success: true,
+                data: recommendations
+            });
+        } catch (error) {
+            console.error('Error fetching mood-based recommendations:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to generate mood-based recommendations.'
+            });
+        }
+    }
 }

@@ -8,6 +8,8 @@ import moodRoutes from './mood.routes';
 import recommendationRoutes from './recommendation.routes';
 import aiRoutes from './ai.routes';
 import notificationRoutes from './notification.routes';
+import badgeRoutes from './badge.routes';
+import analyticsRoutes from './analytics.routes';
 
 const router = Router();
 
@@ -21,5 +23,7 @@ router.use('/mood', moodRoutes);
 router.use('/recommendations', recommendationRoutes);
 router.use('/ai', aiRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/badges', badgeRoutes);
+router.use('/analytics', analyticsRoutes);
 
 export default router;

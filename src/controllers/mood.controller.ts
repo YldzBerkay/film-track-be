@@ -79,5 +79,64 @@ export class MoodController {
       next(error);
     }
   }
+
+  static async getMoodTimeline(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+          code: 401
+        });
+        return;
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const timeline = await MoodService.getMoodTimeline(userId, days);
+
+      res.status(200).json({
+        success: true,
+        data: timeline
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getMoodComparison(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+          code: 401
+        });
+        return;
+      }
+
+      const targetUserId = req.params.userId;
+      if (!targetUserId) {
+        res.status(400).json({
+          success: false,
+          message: 'Target user ID is required',
+          code: 400
+        });
+        return;
+      }
+
+      const comparison = await MoodService.getMoodComparison(userId, targetUserId);
+
+      res.status(200).json({
+        success: true,
+        data: comparison
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 

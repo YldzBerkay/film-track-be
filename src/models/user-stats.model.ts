@@ -8,6 +8,11 @@ export interface IUserStats extends Document {
     joy: number;
     tension: number;
     intellect: number;
+    romance: number;
+    wonder: number;
+    nostalgia: number;
+    darkness: number;
+    inspiration: number;
   };
   lastUpdated: Date;
   createdAt: Date;
@@ -49,6 +54,36 @@ const userStatsSchema = new Schema<IUserStats>(
         max: 100
       },
       intellect: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100
+      },
+      romance: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100
+      },
+      wonder: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100
+      },
+      nostalgia: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100
+      },
+      darkness: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100
+      },
+      inspiration: {
         type: Number,
         default: 0,
         min: 0,
