@@ -5,9 +5,9 @@ import tmdbRoutes from './tmdb.routes';
 import activityRoutes from './activity.routes';
 import userRoutes from './user.routes';
 import moodRoutes from './mood.routes';
-
 import recommendationRoutes from './recommendation.routes';
 import aiRoutes from './ai.routes';
+import notificationRoutes from './notification.routes';
 
 const router = Router();
 
@@ -20,5 +20,6 @@ router.use('/users', userRoutes);
 router.use('/mood', moodRoutes);
 router.use('/recommendations', recommendationRoutes);
 router.use('/ai', aiRoutes);
+router.use('/notifications', notificationRoutes);
 
 export default router;

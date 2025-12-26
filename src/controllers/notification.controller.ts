@@ -81,4 +81,23 @@ export class NotificationController {
             next(error);
         }
     }
+
+    /**
+     * Delete all notifications for user
+     */
+    static async deleteAllNotifications(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+        try {
+            const userId = req.user?.id;
+            if (!userId) {
+                res.status(401).json({ success: false, message: 'Unauthorized' });
+                return;
+            }
+
+            await Notification.deleteMany({ userId });
+
+            res.status(200).json({ success: true, message: 'All notifications deleted' });
+        } catch (error) {
+            next(error);
+        }
+    }
 }

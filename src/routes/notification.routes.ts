@@ -10,6 +10,9 @@ router.get('/', authMiddleware, NotificationController.getNotifications);
 // Mark all as read
 router.post('/read', authMiddleware, NotificationController.markAsRead);
 
+// Delete all notifications (must be before /:notificationId)
+router.delete('/all', authMiddleware, NotificationController.deleteAllNotifications);
+
 // Delete a notification
 router.delete('/:notificationId', authMiddleware, NotificationController.deleteNotification);
 
