@@ -5,5 +5,6 @@ import { authMiddleware } from '../middleware/auth.middleware';
 const router = Router();
 
 router.get('/mealtime', authMiddleware, RecommendationController.getMealtimePick);
+router.get('/daily', authMiddleware, RecommendationController.getDailyPick);
 
 export default router;

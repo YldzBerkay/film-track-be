@@ -140,6 +140,18 @@ export class TMDBService {
     }
   }
 
+  static async getPopularMovies(page: number = 1): Promise<TMDBSearchResponse<TMDBMovie>> {
+    try {
+      const response = await this.client.get('/movie/popular', {
+        params: { page }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('TMDb Popular Movies Error:', error);
+      throw new Error('Popüler filmler alınamadı.');
+    }
+  }
+
   static async searchPeople(query: string, page: number = 1): Promise<TMDBSearchResponse<TMDBPerson>> {
     try {
       const response = await this.client.get('/search/person', {
@@ -155,19 +167,17 @@ export class TMDBService {
     }
   }
 
-  static async getPopularMovies(page: number = 1): Promise<TMDBSearchResponse<TMDBMovie>> {
+  static async getMovie(id: number): Promise<TMDBMovie> {
     try {
-      const response = await this.client.get('/movie/popular', {
-        params: {
-          page
-        }
-      });
+      const response = await this.client.get(`/movie/${id}`);
       return response.data;
     } catch (error) {
-      console.error('TMDb Popular Movies Error:', error);
-      throw new Error('Popüler filmler alınamadı.');
+      console.error('TMDb Get Movie Error:', error);
+      throw new Error('Film bilgileri alınamadı.');
     }
   }
+
+
 
   static async getPopularTvShows(page: number = 1): Promise<TMDBSearchResponse<TMDBTvShow>> {
     try {

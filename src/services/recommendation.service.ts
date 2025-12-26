@@ -1,5 +1,6 @@
 import { Activity } from '../models/activity.model';
 import { TMDBService } from './tmdb.service';
+import { User } from '../models/user.model';
 
 interface MealtimeRecommendation {
     showTitle: string;
@@ -101,6 +102,97 @@ export class RecommendationService {
         } catch (error) {
             console.error('Recommendation Error:', error);
             throw new Error('Failed to generate recommendation.');
+        }
+    }
+
+    static async getDailyRandomMovie(userId: string): Promise<any> {
+        try {
+            const user = await User.findById(userId);
+            if (!user) {
+                throw new Error('User not found');
+            }
+
+            // Logic: Day starts at 00:00 Local Time (GMT+3).
+            const threeHours = 3 * 60 * 60 * 1000;
+            const now = new Date();
+            const getStreakDateString = (date: Date) => {
+                const adjustedDate = new Date(date.getTime() + threeHours);
+                return adjustedDate.toISOString().split('T')[0];
+            };
+            const todayStreakDate = getStreakDateString(now);
+
+            // Check if existing pick is valid for today and try to fetch it
+            if (user.dailyPick && user.dailyPick.date && user.dailyPick.tmdbId) {
+                const pickDateString = getStreakDateString(user.dailyPick.date);
+                if (pickDateString === todayStreakDate) {
+                    try {
+                        // Return stored pick
+                        const movie = await TMDBService.getMovie(user.dailyPick.tmdbId);
+                        return {
+                            tmdbId: movie.id,
+                            title: movie.title,
+                            year: new Date(movie.release_date).getFullYear(),
+                            genre: 'Movie',
+                            backdropUrl: TMDBService.getBackdropUrl(movie.backdrop_path),
+                            overview: movie.overview
+                        };
+                    } catch (err) {
+                        console.warn('Stored daily pick not found in TMDB, generating new one.');
+                        // Fall through to generate new pick
+                    }
+                }
+            }
+
+            // Generate NEW pick
+            // 1. Get user's watched/rated/favorite movies to exclude
+            const activities = await Activity.find({
+                userId,
+                type: { $in: ['movie_watched', 'rating', 'review'] }
+            }).distinct('tmdbId');
+
+            const excludeIds = new Set(activities.map(id => Number(id)));
+
+            // 2. Fetch a random page of popular movies (Pages 1-20 to ensure variety)
+            const randomPage = Math.floor(Math.random() * 20) + 1;
+            const popularMovies = await TMDBService.getPopularMovies(randomPage);
+
+            // 3. Filter candidates
+            const candidates = popularMovies.results.filter(movie => !excludeIds.has(movie.id));
+
+            let randomMovie;
+            if (candidates.length === 0) {
+                // Determine fallback (popular page 1, first movie that isn't excluded, or just first one)
+                const fallback = await TMDBService.getPopularMovies(1);
+                randomMovie = fallback.results[0];
+            } else {
+                // 4. Pick a random candidate
+                randomMovie = candidates[Math.floor(Math.random() * candidates.length)];
+            }
+
+            // 5. Save persistence
+            if (user.dailyPick) {
+                user.dailyPick.tmdbId = randomMovie.id;
+                user.dailyPick.date = now;
+            } else {
+                user.dailyPick = {
+                    tmdbId: randomMovie.id,
+                    date: now
+                };
+            }
+            await user.save();
+
+            return {
+                tmdbId: randomMovie.id,
+                title: randomMovie.title,
+                year: new Date(randomMovie.release_date).getFullYear(),
+                genre: 'Movie', // We could fetch genres if needed, or mapped from IDs
+                backdropUrl: TMDBService.getBackdropUrl(randomMovie.backdrop_path),
+                overview: randomMovie.overview
+            };
+
+        } catch (error) {
+            console.error('Daily Pick Error:', error);
+            throw new Error('Failed to get daily pick.');
         }
     }
 }

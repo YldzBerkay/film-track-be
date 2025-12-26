@@ -3,6 +3,8 @@ import { validationResult } from 'express-validator';
 import { AuthService } from '../services/auth.service';
 import { ApiError } from '../middleware/error-handler';
 
+import { UserService } from '../services/user.service';
+
 export class AuthController {
   static async register(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -51,6 +53,9 @@ export class AuthController {
         email,
         password
       });
+
+      // Update streak asynchronously
+      UserService.updateStreak(result.user.id).catch(console.error);
 
       res.status(200).json({
         success: true,

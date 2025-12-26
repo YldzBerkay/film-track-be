@@ -30,6 +30,14 @@ export interface IUser extends Document {
     posterPath: string;
     firstAirDate: string;
   }>;
+  streak: {
+    current: number;
+    lastLoginDate: Date | null;
+  };
+  dailyPick: {
+    tmdbId: number | null;
+    date: Date | null;
+  };
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -134,7 +142,27 @@ const userSchema = new Schema<IUser>(
         posterPath: String,
         firstAirDate: String
       }
-    ]
+    ],
+    streak: {
+      current: {
+        type: Number,
+        default: 0
+      },
+      lastLoginDate: {
+        type: Date,
+        default: null
+      }
+    },
+    dailyPick: {
+      tmdbId: {
+        type: Number,
+        default: null
+      },
+      date: {
+        type: Date,
+        default: null
+      }
+    }
   },
   {
     timestamps: true
