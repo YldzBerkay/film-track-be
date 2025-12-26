@@ -20,6 +20,7 @@ interface AuthResponse {
     id: string;
     username: string;
     email: string;
+    streak?: number;
   };
   accessToken: string;
   refreshToken: string;
@@ -93,7 +94,8 @@ export class AuthService {
       user: {
         id: user._id.toString(),
         username: user.username,
-        email: user.email
+        email: user.email,
+        streak: user.streak?.current || 0
       },
       accessToken,
       refreshToken
@@ -129,7 +131,8 @@ export class AuthService {
       user: {
         id: user._id.toString(),
         username: user.username,
-        email: user.email
+        email: user.email,
+        streak: user.streak?.current || 0
       },
       accessToken: newAccessToken,
       refreshToken: newRefreshToken

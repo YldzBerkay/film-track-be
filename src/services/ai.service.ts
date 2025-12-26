@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { Movie } from '../models/movie.model';
+import { MemoryVerificationResult } from '../types/ai.types';
 
 export interface MoodVector {
   adrenaline: number;
@@ -91,6 +92,59 @@ export class AIService {
     }
 
     return moodVector;
+  }
+
+  static async verifyFilmMemory(
+    filmTitle: string,
+    filmOverview: string,
+    userMemory: string
+  ): Promise<MemoryVerificationResult> {
+    try {
+      const client = this.getClient();
+
+      const systemPrompt = `You are a film verification assistant. Given a movie's title and plot summary, determine if a user's memory description indicates they have actually watched the film. Consider:
+- Specific plot points, character names, or scenes mentioned
+- Emotional reactions that align with the film's themes
+- Details that could only be known from watching (not just trailers/marketing)
+
+Return ONLY valid JSON without any markdown formatting.`;
+
+      const userPrompt = `Film Title: ${filmTitle}
+Film Plot: ${filmOverview}
+
+User's Memory: "${userMemory}"
+
+Analyze if this user has likely watched the film. Return a JSON object with:
+- "watched": boolean (true if they likely watched it, false otherwise)
+- "confidence": number from 0-100 (how confident you are in your assessment)
+- "reasoning": string (brief explanation of your decision)`;
+
+      const response = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.3
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+
+      const parsed = JSON.parse(content) as MemoryVerificationResult;
+
+      return {
+        watched: Boolean(parsed.watched),
+        confidence: Math.max(0, Math.min(100, parsed.confidence || 50)),
+        reasoning: parsed.reasoning || 'Unable to determine reasoning.'
+      };
+    } catch (error) {
+      console.error('OpenAI Memory Verification Error:', error);
+      throw new Error('Failed to verify film memory with AI');
+    }
   }
 }
 

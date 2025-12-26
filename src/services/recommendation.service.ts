@@ -134,7 +134,8 @@ export class RecommendationService {
                             year: new Date(movie.release_date).getFullYear(),
                             genre: 'Movie',
                             backdropUrl: TMDBService.getBackdropUrl(movie.backdrop_path),
-                            overview: movie.overview
+                            overview: movie.overview,
+                            watched: user.dailyPick?.watched || false
                         };
                     } catch (err) {
                         console.warn('Stored daily pick not found in TMDB, generating new one.');
@@ -156,8 +157,13 @@ export class RecommendationService {
             const randomPage = Math.floor(Math.random() * 20) + 1;
             const popularMovies = await TMDBService.getPopularMovies(randomPage);
 
-            // 3. Filter candidates
-            const candidates = popularMovies.results.filter(movie => !excludeIds.has(movie.id));
+            // 3. Filter candidates - exclude watched movies and unreleased movies
+            const today = new Date().toISOString().split('T')[0];
+            const candidates = popularMovies.results.filter(movie =>
+                !excludeIds.has(movie.id) &&
+                movie.release_date &&
+                movie.release_date <= today
+            );
 
             let randomMovie;
             if (candidates.length === 0) {
@@ -173,10 +179,12 @@ export class RecommendationService {
             if (user.dailyPick) {
                 user.dailyPick.tmdbId = randomMovie.id;
                 user.dailyPick.date = now;
+                user.dailyPick.watched = false;
             } else {
                 user.dailyPick = {
                     tmdbId: randomMovie.id,
-                    date: now
+                    date: now,
+                    watched: false
                 };
             }
             await user.save();
@@ -185,9 +193,10 @@ export class RecommendationService {
                 tmdbId: randomMovie.id,
                 title: randomMovie.title,
                 year: new Date(randomMovie.release_date).getFullYear(),
-                genre: 'Movie', // We could fetch genres if needed, or mapped from IDs
+                genre: 'Movie',
                 backdropUrl: TMDBService.getBackdropUrl(randomMovie.backdrop_path),
-                overview: randomMovie.overview
+                overview: randomMovie.overview,
+                watched: false
             };
 
         } catch (error) {

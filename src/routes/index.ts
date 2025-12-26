@@ -7,6 +7,7 @@ import userRoutes from './user.routes';
 import moodRoutes from './mood.routes';
 
 import recommendationRoutes from './recommendation.routes';
+import aiRoutes from './ai.routes';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use('/activities', activityRoutes);
 router.use('/users', userRoutes);
 router.use('/mood', moodRoutes);
 router.use('/recommendations', recommendationRoutes);
+router.use('/ai', aiRoutes);
 
 export default router;

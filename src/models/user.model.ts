@@ -37,6 +37,7 @@ export interface IUser extends Document {
   dailyPick: {
     tmdbId: number | null;
     date: Date | null;
+    watched: boolean;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -161,6 +162,10 @@ const userSchema = new Schema<IUser>(
       date: {
         type: Date,
         default: null
+      },
+      watched: {
+        type: Boolean,
+        default: false
       }
     }
   },
