@@ -57,3 +57,40 @@ export const authMiddleware = async (
   }
 };
 
+/**
+ * Optional auth middleware - extracts user if token present but doesn't fail if missing
+ */
+export const optionalAuthMiddleware = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+
+    if (!token) {
+      // No token, but that's OK - just continue without user
+      next();
+      return;
+    }
+
+    const jwtSecret = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+    const decoded = jwt.verify(token, jwtSecret) as { userId: string };
+
+    const user = await User.findById(decoded.userId).select('-password');
+
+    if (user) {
+      req.user = {
+        id: user._id.toString(),
+        email: user.email,
+        username: user.username
+      };
+    }
+
+    next();
+  } catch (error) {
+    // Token invalid, but still continue without user
+    next();
+  }
+};
+

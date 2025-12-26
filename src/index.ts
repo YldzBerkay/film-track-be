@@ -1,11 +1,17 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import { createServer } from 'http';
 import { config } from './config/env';
 import { connectDatabase } from './config/database';
 import { errorHandler } from './middleware/error-handler';
 import routes from './routes';
+import { socketService } from './services/socket.service';
 
 const app = express();
+const httpServer = createServer(app);
+
+// Initialize Socket.io
+socketService.initialize(httpServer);
 
 // Middleware
 app.use(cors());
@@ -38,8 +44,9 @@ const startServer = async (): Promise<void> => {
   try {
     await connectDatabase();
 
-    app.listen(config.port, () => {
+    httpServer.listen(config.port, () => {
       console.log(`🚀 Server is running on http://localhost:${config.port}`);
+      console.log(`🔌 Socket.io is ready for connections`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
