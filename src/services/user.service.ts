@@ -177,5 +177,37 @@ export class UserService {
     user.streak.lastLoginDate = now;
     await user.save();
   }
+
+  /**
+   * Get friends (mutual followers) for a user
+   */
+  static async getFriends(userId: string): Promise<Array<{
+    id: string;
+    username: string;
+    nickname: string;
+  }>> {
+    const user = await User.findById(userId)
+      .select('following followers')
+      .populate('following', 'username nickname')
+      .populate('followers', 'username nickname');
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const followingIds = new Set(user.following.map((f: any) => f._id.toString()));
+    const followerIds = new Set(user.followers.map((f: any) => f._id.toString()));
+
+    // Friends are mutual: in both following and followers
+    const friends = (user.following as any[]).filter(
+      (f: any) => followerIds.has(f._id.toString())
+    );
+
+    return friends.map((f: any) => ({
+      id: f._id.toString(),
+      username: f.username,
+      nickname: f.nickname
+    }));
+  }
 }
 

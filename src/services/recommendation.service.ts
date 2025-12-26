@@ -204,4 +204,109 @@ export class RecommendationService {
             throw new Error('Failed to get daily pick.');
         }
     }
+
+    /**
+     * Get a mealtime recommendation based on shared interests with friends
+     */
+    static async getFriendMealtimePick(userId: string, friendIds: string[]): Promise<MealtimeRecommendation & { sharedWith: string[] }> {
+        try {
+            // 1. Get all users (current user + friends)
+            const allUserIds = [userId, ...friendIds];
+            const users = await User.find({ _id: { $in: allUserIds } }).select('favoriteTvShows username');
+
+            if (users.length !== allUserIds.length) {
+                throw new Error('One or more users not found');
+            }
+
+            // 2. Find shared TV shows (intersection of all users' favorites)
+            const tvShowMaps = users.map(u => new Set(u.favoriteTvShows.map(s => s.tmdbId)));
+
+            let sharedShowIds: number[] = [];
+            if (tvShowMaps.length > 0) {
+                // Start with first user's shows
+                sharedShowIds = [...tvShowMaps[0]];
+
+                // Intersect with all other users
+                for (let i = 1; i < tvShowMaps.length; i++) {
+                    sharedShowIds = sharedShowIds.filter(id => tvShowMaps[i].has(id));
+                }
+            }
+
+            // 3. If no shared shows, use union of all favorites
+            if (sharedShowIds.length === 0) {
+                const allShows = new Set<number>();
+                users.forEach(u => u.favoriteTvShows.forEach(s => allShows.add(s.tmdbId)));
+                sharedShowIds = [...allShows];
+            }
+
+            // 4. If still no shows, use fallbacks
+            if (sharedShowIds.length === 0) {
+                sharedShowIds = [...this.FALLBACK_SHOW_IDS];
+            }
+
+            // 5. Try to find a valid episode from shared shows
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const randomShowId = sharedShowIds[Math.floor(Math.random() * sharedShowIds.length)];
+
+                try {
+                    const showDetails = await TMDBService.getShowDetails(randomShowId.toString());
+
+                    // Filter out specials (season 0) and empty seasons
+                    const validSeasons = showDetails.seasons.filter(
+                        s => s.season_number > 0 && s.episode_count > 0
+                    );
+
+                    if (validSeasons.length === 0) continue;
+
+                    const randomSeason = validSeasons[Math.floor(Math.random() * validSeasons.length)];
+                    const randomEpisodeNumber = Math.floor(Math.random() * randomSeason.episode_count) + 1;
+
+                    const seasonDetails = await TMDBService.getSeasonDetails(
+                        randomShowId.toString(),
+                        randomSeason.season_number
+                    );
+
+                    const episode = seasonDetails.episodes.find(e => e.episode_number === randomEpisodeNumber);
+
+                    if (episode) {
+                        // Get friend usernames for display
+                        const friendUsers = users.filter(u => u._id.toString() !== userId);
+
+                        return {
+                            showTitle: showDetails.name,
+                            showPoster: TMDBService.getPosterUrl(showDetails.poster_path),
+                            episodeTitle: episode.name,
+                            seasonNumber: randomSeason.season_number,
+                            episodeNumber: randomEpisodeNumber,
+                            runtime: showDetails.episode_run_time[0] || 30,
+                            overview: episode.overview || showDetails.overview,
+                            stillPath: episode.still_path ? TMDBService.getBackdropUrl(episode.still_path) : null,
+                            sharedWith: friendUsers.map(u => u.username)
+                        };
+                    }
+                } catch (err) {
+                    console.warn(`Failed to process show ${randomShowId} for friend recommendation`, err);
+                    continue;
+                }
+            }
+
+            // Fallback
+            const fallbackShow = await TMDBService.getShowDetails('1668');
+            return {
+                showTitle: fallbackShow.name,
+                showPoster: TMDBService.getPosterUrl(fallbackShow.poster_path),
+                episodeTitle: 'The One Where They All Watch Together',
+                seasonNumber: 1,
+                episodeNumber: 1,
+                runtime: 22,
+                overview: 'A fallback recommendation when shared selection fails.',
+                stillPath: null,
+                sharedWith: friendIds.length > 0 ? ['your friends'] : []
+            };
+
+        } catch (error) {
+            console.error('Friend Mealtime Pick Error:', error);
+            throw new Error('Failed to get friend recommendation.');
+        }
+    }
 }
