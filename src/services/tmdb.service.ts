@@ -18,6 +18,19 @@ export interface TMDBTvShow {
   backdrop_path: string | null;
 }
 
+export interface TMDBPerson {
+  id: number;
+  name: string;
+  original_name: string;
+  media_type: 'person';
+  adult: boolean;
+  popularity: number;
+  gender: number;
+  known_for_department: string;
+  profile_path: string | null;
+  known_for: Array<TMDBMovie | TMDBTvShow>;
+}
+
 export interface TMDBSearchResponse<T> {
   results: T[];
   total_results: number;
@@ -124,6 +137,21 @@ export class TMDBService {
     } catch (error) {
       console.error('TMDb TV Search Error:', error);
       throw new Error('Dizi aranamadı.');
+    }
+  }
+
+  static async searchPeople(query: string, page: number = 1): Promise<TMDBSearchResponse<TMDBPerson>> {
+    try {
+      const response = await this.client.get('/search/person', {
+        params: {
+          query,
+          page
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('TMDb Person Search Error:', error);
+      throw new Error('Kişi aranamadı.');
     }
   }
 

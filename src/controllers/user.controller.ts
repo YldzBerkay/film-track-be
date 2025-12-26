@@ -41,5 +41,29 @@ export class UserController {
       next(error);
     }
   }
+
+  static async searchUsers(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { query, page = 1 } = req.query;
+
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({
+          success: false,
+          message: 'Query parameter is required',
+          code: 400
+        });
+        return;
+      }
+
+      const results = await UserService.searchUsers(query, Number(page));
+
+      res.status(200).json({
+        success: true,
+        data: results
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 

@@ -103,5 +103,41 @@ export class UserService {
       reviewCount
     };
   }
+  static async searchUsers(query: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+
+    const users = await User.find({
+      $or: [
+        { username: { $regex: query, $options: 'i' } },
+        { nickname: { $regex: query, $options: 'i' } }
+      ]
+    })
+      .select('username nickname _id posterPath') // Basic info for search results
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await User.countDocuments({
+      $or: [
+        { username: { $regex: query, $options: 'i' } },
+        { nickname: { $regex: query, $options: 'i' } }
+      ]
+    });
+
+    return {
+      users: users.map(user => ({
+        id: user._id.toString(),
+        username: user.username,
+        nickname: user.nickname,
+        avatar: null // Placeholder, add avatar field to User model if needed
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
+  }
 }
 

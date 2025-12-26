@@ -50,6 +50,30 @@ export class TMDBController {
     }
   }
 
+  static async searchPeople(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { query, page = 1 } = req.query;
+
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({
+          success: false,
+          message: 'Query parameter is required',
+          code: 400
+        });
+        return;
+      }
+
+      const results = await TMDBService.searchPeople(query, Number(page));
+
+      res.status(200).json({
+        success: true,
+        data: results
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getPopularMovies(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { page = 1 } = req.query;

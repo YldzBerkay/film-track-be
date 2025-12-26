@@ -6,6 +6,7 @@ const router = Router();
 // Search endpoints
 router.get('/movies/search', TMDBController.searchMovies);
 router.get('/tv/search', TMDBController.searchTvShows);
+router.get('/people/search', TMDBController.searchPeople);
 
 // Popular endpoints
 router.get('/movies/popular', TMDBController.getPopularMovies);
