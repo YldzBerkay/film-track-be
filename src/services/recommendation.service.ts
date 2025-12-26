@@ -83,7 +83,8 @@ export class RecommendationService {
         userId: string,
         mode: 'match' | 'shift' = 'match',
         limit: number = 10,
-        includeWatched: boolean = false
+        includeWatched: boolean = false,
+        lang?: string
     ): Promise<MoodRecommendation[]> {
         try {
             // 1. Get user's current mood
@@ -129,7 +130,7 @@ export class RecommendationService {
             // 6. If we don't have enough movies with mood vectors, supplement with popular movies
             if (scoredMovies.length < limit) {
                 const needed = limit - scoredMovies.length;
-                const popularMovies = await TMDBService.getPopularMovies(1);
+                const popularMovies = await TMDBService.getPopularMovies(1, lang);
 
                 const additionalMovies = popularMovies.results
                     .filter(m => !excludeIds.has(m.id) && !scoredMovies.some(s => s.tmdbId === m.id))
@@ -157,7 +158,7 @@ export class RecommendationService {
         }
     }
 
-    static async getMealtimeRandomPick(userId: string): Promise<MealtimeRecommendation> {
+    static async getMealtimeRandomPick(userId: string, lang?: string): Promise<MealtimeRecommendation> {
         try {
             // 1. Get user's watched shows
             const activities = await Activity.find({
@@ -177,7 +178,7 @@ export class RecommendationService {
                 const randomId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
 
                 try {
-                    const showDetails = await TMDBService.getShowDetails(randomId.toString());
+                    const showDetails = await TMDBService.getShowDetails(randomId.toString(), lang);
 
                     // Calculate average runtime
                     const avgRuntime = showDetails.episode_run_time.length > 0
@@ -197,10 +198,10 @@ export class RecommendationService {
 
                         const randomEpisodeNumber = Math.floor(Math.random() * randomSeason.episode_count) + 1;
 
-                        // Get episode details
                         const episodeDetails = await TMDBService.getSeasonDetails(
                             randomId.toString(),
-                            randomSeason.season_number
+                            randomSeason.season_number,
+                            lang
                         );
 
                         const episode = episodeDetails.episodes.find(e => e.episode_number === randomEpisodeNumber);
@@ -226,7 +227,7 @@ export class RecommendationService {
 
             // 3. Fallback if logic fails: Return a hardcoded "Friends" episode recommendation
             // Friends ID: 1668
-            const fallbackShow = await TMDBService.getShowDetails('1668');
+            const fallbackShow = await TMDBService.getShowDetails('1668', lang);
             return {
                 showTitle: fallbackShow.name,
                 showPoster: TMDBService.getPosterUrl(fallbackShow.poster_path),
@@ -244,7 +245,7 @@ export class RecommendationService {
         }
     }
 
-    static async getDailyRandomMovie(userId: string): Promise<any> {
+    static async getDailyRandomMovie(userId: string, lang?: string): Promise<any> {
         try {
             const user = await User.findById(userId);
             if (!user) {
@@ -266,7 +267,7 @@ export class RecommendationService {
                 if (pickDateString === todayStreakDate) {
                     try {
                         // Return stored pick
-                        const movie = await TMDBService.getMovie(user.dailyPick.tmdbId);
+                        const movie = await TMDBService.getMovie(user.dailyPick.tmdbId, lang);
                         return {
                             tmdbId: movie.id,
                             title: movie.title,
@@ -294,7 +295,7 @@ export class RecommendationService {
 
             // 2. Fetch a random page of popular movies (Pages 1-20 to ensure variety)
             const randomPage = Math.floor(Math.random() * 20) + 1;
-            const popularMovies = await TMDBService.getPopularMovies(randomPage);
+            const popularMovies = await TMDBService.getPopularMovies(randomPage, lang);
 
             // 3. Filter candidates - exclude watched movies and unreleased movies
             const today = new Date().toISOString().split('T')[0];
@@ -307,7 +308,7 @@ export class RecommendationService {
             let randomMovie;
             if (candidates.length === 0) {
                 // Determine fallback (popular page 1, first movie that isn't excluded, or just first one)
-                const fallback = await TMDBService.getPopularMovies(1);
+                const fallback = await TMDBService.getPopularMovies(1, lang);
                 randomMovie = fallback.results[0];
             } else {
                 // 4. Pick a random candidate
@@ -347,7 +348,7 @@ export class RecommendationService {
     /**
      * Get a mealtime recommendation based on shared interests with friends
      */
-    static async getFriendMealtimePick(userId: string, friendIds: string[]): Promise<MealtimeRecommendation & { sharedWith: string[] }> {
+    static async getFriendMealtimePick(userId: string, friendIds: string[], lang?: string): Promise<MealtimeRecommendation & { sharedWith: string[] }> {
         try {
             // 1. Get all users (current user + friends)
             const allUserIds = [userId, ...friendIds];
@@ -388,7 +389,7 @@ export class RecommendationService {
                 const randomShowId = sharedShowIds[Math.floor(Math.random() * sharedShowIds.length)];
 
                 try {
-                    const showDetails = await TMDBService.getShowDetails(randomShowId.toString());
+                    const showDetails = await TMDBService.getShowDetails(randomShowId.toString(), lang);
 
                     // Filter out specials (season 0) and empty seasons
                     const validSeasons = showDetails.seasons.filter(
@@ -402,7 +403,8 @@ export class RecommendationService {
 
                     const seasonDetails = await TMDBService.getSeasonDetails(
                         randomShowId.toString(),
-                        randomSeason.season_number
+                        randomSeason.season_number,
+                        lang
                     );
 
                     const episode = seasonDetails.episodes.find(e => e.episode_number === randomEpisodeNumber);
@@ -430,7 +432,7 @@ export class RecommendationService {
             }
 
             // Fallback
-            const fallbackShow = await TMDBService.getShowDetails('1668');
+            const fallbackShow = await TMDBService.getShowDetails('1668', lang);
             return {
                 showTitle: fallbackShow.name,
                 showPoster: TMDBService.getPosterUrl(fallbackShow.poster_path),

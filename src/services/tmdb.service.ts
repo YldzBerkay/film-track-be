@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { getTMDBLanguage } from '../config/i18n';
 
 export interface TMDBMovie {
   id: number;
@@ -105,129 +106,142 @@ export class TMDBService {
     baseURL: this.BASE_URL,
     params: {
       api_key: this.API_KEY,
-      language: 'tr-TR',
       include_adult: false
     }
   });
 
-  static async searchMovies(query: string, page: number = 1): Promise<TMDBSearchResponse<TMDBMovie>> {
+  private static getLanguageParams(lang?: string): { language: string } {
+    return { language: getTMDBLanguage(lang) };
+  }
+
+  static async searchMovies(query: string, page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBMovie>> {
     try {
       const response = await this.client.get('/search/movie', {
         params: {
           query,
-          page
+          page,
+          ...this.getLanguageParams(lang)
         }
       });
       return response.data;
     } catch (error) {
       console.error('TMDb Search Error:', error);
-      throw new Error('Film aranamadı.');
+      throw new Error('Failed to search movies');
     }
   }
 
-  static async searchTvShows(query: string, page: number = 1): Promise<TMDBSearchResponse<TMDBTvShow>> {
+  static async searchTvShows(query: string, page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBTvShow>> {
     try {
       const response = await this.client.get('/search/tv', {
         params: {
           query,
-          page
+          page,
+          ...this.getLanguageParams(lang)
         }
       });
       return response.data;
     } catch (error) {
       console.error('TMDb TV Search Error:', error);
-      throw new Error('Dizi aranamadı.');
+      throw new Error('Failed to search TV shows');
     }
   }
 
-  static async getPopularMovies(page: number = 1): Promise<TMDBSearchResponse<TMDBMovie>> {
+  static async getPopularMovies(page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBMovie>> {
     try {
       const response = await this.client.get('/movie/popular', {
-        params: { page }
+        params: { page, ...this.getLanguageParams(lang) }
       });
       return response.data;
     } catch (error) {
       console.error('TMDb Popular Movies Error:', error);
-      throw new Error('Popüler filmler alınamadı.');
+      throw new Error('Failed to get popular movies');
     }
   }
 
-  static async searchPeople(query: string, page: number = 1): Promise<TMDBSearchResponse<TMDBPerson>> {
+  static async searchPeople(query: string, page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBPerson>> {
     try {
       const response = await this.client.get('/search/person', {
         params: {
           query,
-          page
+          page,
+          ...this.getLanguageParams(lang)
         }
       });
       return response.data;
     } catch (error) {
       console.error('TMDb Person Search Error:', error);
-      throw new Error('Kişi aranamadı.');
+      throw new Error('Failed to search people');
     }
   }
 
-  static async getMovie(id: number): Promise<TMDBMovie> {
+  static async getMovie(id: number, lang?: string): Promise<TMDBMovie> {
     try {
-      const response = await this.client.get(`/movie/${id}`);
+      const response = await this.client.get(`/movie/${id}`, {
+        params: this.getLanguageParams(lang)
+      });
       return response.data;
     } catch (error) {
       console.error('TMDb Get Movie Error:', error);
-      throw new Error('Film bilgileri alınamadı.');
+      throw new Error('Failed to get movie');
     }
   }
 
 
 
-  static async getPopularTvShows(page: number = 1): Promise<TMDBSearchResponse<TMDBTvShow>> {
+  static async getPopularTvShows(page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBTvShow>> {
     try {
       const response = await this.client.get('/tv/popular', {
         params: {
-          page
+          page,
+          ...this.getLanguageParams(lang)
         }
       });
       return response.data;
     } catch (error) {
       console.error('TMDb Popular TV Shows Error:', error);
-      throw new Error('Popüler diziler alınamadı.');
+      throw new Error('Failed to get popular TV shows');
     }
   }
 
-  static async getMovieDetails(tmdbId: string): Promise<TMDBMovieDetails> {
+  static async getMovieDetails(tmdbId: string, lang?: string): Promise<TMDBMovieDetails> {
     try {
       const response = await this.client.get(`/movie/${tmdbId}`, {
         params: {
-          append_to_response: 'credits,videos,similar'
+          append_to_response: 'credits,videos,similar',
+          ...this.getLanguageParams(lang)
         }
       });
       return response.data;
     } catch (error) {
       console.error('TMDb Movie Details Error:', error);
-      throw new Error('Film detayı bulunamadı.');
+      throw new Error('Failed to get movie details');
     }
   }
 
-  static async getShowDetails(tmdbId: string): Promise<TMDBTvShowDetails> {
+  static async getShowDetails(tmdbId: string, lang?: string): Promise<TMDBTvShowDetails> {
     try {
       const response = await this.client.get(`/tv/${tmdbId}`, {
         params: {
-          append_to_response: 'credits'
+          append_to_response: 'credits',
+          ...this.getLanguageParams(lang)
         }
       });
       return response.data;
     } catch (error) {
       console.error('TMDb TV Show Details Error:', error);
-      throw new Error('Dizi bulunamadı.');
+      throw new Error('Failed to get TV show details');
     }
   }
 
-  static async getSeasonDetails(tvId: string, seasonNumber: number): Promise<TMDBSeasonDetails> {
+  static async getSeasonDetails(tvId: string, seasonNumber: number, lang?: string): Promise<TMDBSeasonDetails> {
     try {
-      const response = await this.client.get(`/tv/${tvId}/season/${seasonNumber}`);
+      const response = await this.client.get(`/tv/${tvId}/season/${seasonNumber}`, {
+        params: this.getLanguageParams(lang)
+      });
       return response.data;
     } catch (error) {
       console.error('TMDb Season Details Error:', error);
-      throw new Error('Sezon verisi alınamadı.');
+      throw new Error('Failed to get season details');
     }
   }
 

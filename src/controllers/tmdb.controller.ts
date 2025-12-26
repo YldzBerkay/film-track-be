@@ -4,7 +4,7 @@ import { TMDBService } from '../services/tmdb.service';
 export class TMDBController {
   static async searchMovies(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { query, page = 1 } = req.query;
+      const { query, page = 1, lang } = req.query;
 
       if (!query || typeof query !== 'string') {
         res.status(400).json({
@@ -15,7 +15,7 @@ export class TMDBController {
         return;
       }
 
-      const results = await TMDBService.searchMovies(query, Number(page));
+      const results = await TMDBService.searchMovies(query, Number(page), lang as string | undefined);
 
       res.status(200).json({
         success: true,
@@ -28,7 +28,7 @@ export class TMDBController {
 
   static async searchTvShows(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { query, page = 1 } = req.query;
+      const { query, page = 1, lang } = req.query;
 
       if (!query || typeof query !== 'string') {
         res.status(400).json({
@@ -39,7 +39,7 @@ export class TMDBController {
         return;
       }
 
-      const results = await TMDBService.searchTvShows(query, Number(page));
+      const results = await TMDBService.searchTvShows(query, Number(page), lang as string | undefined);
 
       res.status(200).json({
         success: true,
@@ -52,7 +52,7 @@ export class TMDBController {
 
   static async searchPeople(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { query, page = 1 } = req.query;
+      const { query, page = 1, lang } = req.query;
 
       if (!query || typeof query !== 'string') {
         res.status(400).json({
@@ -63,7 +63,7 @@ export class TMDBController {
         return;
       }
 
-      const results = await TMDBService.searchPeople(query, Number(page));
+      const results = await TMDBService.searchPeople(query, Number(page), lang as string | undefined);
 
       res.status(200).json({
         success: true,
@@ -76,8 +76,8 @@ export class TMDBController {
 
   static async getPopularMovies(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { page = 1 } = req.query;
-      const results = await TMDBService.getPopularMovies(Number(page));
+      const { page = 1, lang } = req.query;
+      const results = await TMDBService.getPopularMovies(Number(page), lang as string | undefined);
 
       res.status(200).json({
         success: true,
@@ -90,8 +90,8 @@ export class TMDBController {
 
   static async getPopularTvShows(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { page = 1 } = req.query;
-      const results = await TMDBService.getPopularTvShows(Number(page));
+      const { page = 1, lang } = req.query;
+      const results = await TMDBService.getPopularTvShows(Number(page), lang as string | undefined);
 
       res.status(200).json({
         success: true,
@@ -105,6 +105,7 @@ export class TMDBController {
   static async getMovieDetails(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { tmdbId } = req.params;
+      const { lang } = req.query;
 
       if (!tmdbId) {
         res.status(400).json({
@@ -115,7 +116,7 @@ export class TMDBController {
         return;
       }
 
-      const details = await TMDBService.getMovieDetails(tmdbId);
+      const details = await TMDBService.getMovieDetails(tmdbId, lang as string | undefined);
 
       res.status(200).json({
         success: true,
@@ -129,6 +130,7 @@ export class TMDBController {
   static async getShowDetails(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { tmdbId } = req.params;
+      const { lang } = req.query;
 
       if (!tmdbId) {
         res.status(400).json({
@@ -139,7 +141,7 @@ export class TMDBController {
         return;
       }
 
-      const details = await TMDBService.getShowDetails(tmdbId);
+      const details = await TMDBService.getShowDetails(tmdbId, lang as string | undefined);
 
       res.status(200).json({
         success: true,
@@ -153,6 +155,7 @@ export class TMDBController {
   static async getSeasonDetails(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { tvId, seasonNumber } = req.params;
+      const { lang } = req.query;
 
       if (!tvId || !seasonNumber) {
         res.status(400).json({
@@ -163,7 +166,7 @@ export class TMDBController {
         return;
       }
 
-      const details = await TMDBService.getSeasonDetails(tvId, Number(seasonNumber));
+      const details = await TMDBService.getSeasonDetails(tvId, Number(seasonNumber), lang as string | undefined);
 
       res.status(200).json({
         success: true,

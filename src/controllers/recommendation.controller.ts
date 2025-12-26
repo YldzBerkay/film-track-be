@@ -11,7 +11,8 @@ export class RecommendationController {
                 return res.status(401).json({ message: 'Unauthorized' });
             }
 
-            const recommendation = await RecommendationService.getMealtimeRandomPick(userId);
+            const lang = req.query.lang as string | undefined;
+            const recommendation = await RecommendationService.getMealtimeRandomPick(userId, lang);
 
             return res.status(200).json({
                 success: true,
@@ -33,7 +34,8 @@ export class RecommendationController {
                 return res.status(401).json({ message: 'Unauthorized' });
             }
 
-            const dailyPick = await RecommendationService.getDailyRandomMovie(userId);
+            const lang = req.query.lang as string | undefined;
+            const dailyPick = await RecommendationService.getDailyRandomMovie(userId, lang);
 
             return res.status(200).json({
                 success: true,
@@ -85,7 +87,8 @@ export class RecommendationController {
                 });
             }
 
-            const recommendation = await RecommendationService.getFriendMealtimePick(userId, friendIds);
+            const lang = req.query.lang as string | undefined;
+            const recommendation = await RecommendationService.getFriendMealtimePick(userId, friendIds, lang);
 
             return res.status(200).json({
                 success: true,
@@ -110,8 +113,9 @@ export class RecommendationController {
             const mode = (req.query.mode as 'match' | 'shift') || 'match';
             const limit = parseInt(req.query.limit as string) || 10;
             const includeWatched = req.query.includeWatched === 'true';
+            const lang = req.query.lang as string | undefined;
 
-            const recommendations = await RecommendationService.getMoodBasedRecommendations(userId, mode, limit, includeWatched);
+            const recommendations = await RecommendationService.getMoodBasedRecommendations(userId, mode, limit, includeWatched, lang);
 
             return res.status(200).json({
                 success: true,
@@ -126,3 +130,4 @@ export class RecommendationController {
         }
     }
 }
+
