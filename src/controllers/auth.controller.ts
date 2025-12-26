@@ -17,11 +17,10 @@ export class AuthController {
         throw error;
       }
 
-      const { username, nickname, email, password } = req.body;
+      const { username, email, password } = req.body;
 
       const result = await AuthService.register({
         username,
-        nickname,
         email,
         password
       });

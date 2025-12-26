@@ -8,12 +8,6 @@ export const registerValidation: ValidationChain[] = [
         .matches(/^[a-zA-Z0-9_]+$/)
         .withMessage('Username can only contain letters, numbers, and underscores'),
 
-    body('nickname')
-        .trim()
-        .isLength({ min: 2, max: 50 })
-        .withMessage('Nickname must be between 2 and 50 characters')
-        .notEmpty()
-        .withMessage('Nickname is required'),
 
     body('email')
         .trim()

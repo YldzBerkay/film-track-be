@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { UserController } from '../controllers/user.controller';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.middleware';
+import { upload } from '../middleware/upload.middleware';
 
 const router = Router();
 
 // Protected route - get current user's profile (must be before /:username)
 router.get('/profile/me', authMiddleware, UserController.getCurrentProfile);
+
+// Update current user's profile
+router.put('/profile/me', authMiddleware, upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), UserController.updateProfile);
 
 // Public route - search users
 router.get('/search', UserController.searchUsers);

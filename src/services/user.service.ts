@@ -1,11 +1,12 @@
 import { User, IUser } from '../models/user.model';
 import { Activity } from '../models/activity.model';
+import sharp from 'sharp';
 
 interface UserProfileResponse {
   user: {
     id: string;
     username: string;
-    nickname: string;
+    name: string;
     email: string;
     stats: {
       moviesWatched: number;
@@ -25,6 +26,10 @@ interface UserProfileResponse {
       posterPath: string;
       firstAirDate: string;
     }>;
+    avatar: string | null;
+    banner: string | null;
+    usernameLastChanged: Date | null;
+    canChangeUsernameAt: Date | null;
     createdAt: Date;
   };
   recentActivities: any[];
@@ -67,13 +72,19 @@ export class UserService {
       user: {
         id: user._id.toString(),
         username: user.username,
-        nickname: user.nickname,
+        name: user.name,
         email: user.email,
         stats: user.stats,
         followersCount: user.followersCount,
         followingCount: user.followingCount,
         favoriteMovies: user.favoriteMovies,
         favoriteTvShows: user.favoriteTvShows,
+        avatar: user.avatar,
+        banner: user.banner,
+        usernameLastChanged: user.usernameLastChanged,
+        canChangeUsernameAt: user.usernameLastChanged
+          ? new Date(user.usernameLastChanged.getTime() + 30 * 24 * 60 * 60 * 1000)
+          : null,
         createdAt: user.createdAt
       },
       recentActivities,
@@ -103,13 +114,19 @@ export class UserService {
       user: {
         id: user._id.toString(),
         username: user.username,
-        nickname: user.nickname,
+        name: user.name,
         email: user.email,
         stats: user.stats,
         followersCount: user.followersCount,
         followingCount: user.followingCount,
         favoriteMovies: user.favoriteMovies,
         favoriteTvShows: user.favoriteTvShows,
+        avatar: user.avatar,
+        banner: user.banner,
+        usernameLastChanged: user.usernameLastChanged,
+        canChangeUsernameAt: user.usernameLastChanged
+          ? new Date(user.usernameLastChanged.getTime() + 30 * 24 * 60 * 60 * 1000)
+          : null,
         createdAt: user.createdAt
       },
       recentActivities,
@@ -122,10 +139,10 @@ export class UserService {
     const users = await User.find({
       $or: [
         { username: { $regex: query, $options: 'i' } },
-        { nickname: { $regex: query, $options: 'i' } }
+        { name: { $regex: query, $options: 'i' } }
       ]
     })
-      .select('username nickname _id posterPath') // Basic info for search results
+      .select('username name _id avatar')
       .skip(skip)
       .limit(limit)
       .lean();
@@ -133,19 +150,25 @@ export class UserService {
     const total = await User.countDocuments({
       $or: [
         { username: { $regex: query, $options: 'i' } },
-        { nickname: { $regex: query, $options: 'i' } }
+        { name: { $regex: query, $options: 'i' } }
       ]
     });
 
     return {
-      users: users.map(user => ({
+      users: users.map((user: any) => ({
         id: user._id.toString(),
         username: user.username,
-        nickname: user.nickname,
-        avatar: null // Placeholder, add avatar field to User model if needed
+        name: user.name,
+        avatar: user.avatar
       })),
-    }
-  };
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
+  }
 
   static async updateStreak(userId: string): Promise<void> {
     const user = await User.findById(userId);
@@ -197,12 +220,12 @@ export class UserService {
   static async getFriends(userId: string): Promise<Array<{
     id: string;
     username: string;
-    nickname: string;
+    name: string;
   }>> {
     const user = await User.findById(userId)
       .select('following followers')
-      .populate('following', 'username nickname')
-      .populate('followers', 'username nickname');
+      .populate('following', 'username name')
+      .populate('followers', 'username name');
 
     if (!user) {
       throw new Error('User not found');
@@ -219,7 +242,7 @@ export class UserService {
     return friends.map((f: any) => ({
       id: f._id.toString(),
       username: f.username,
-      nickname: f.nickname
+      name: f.name
     }));
   }
 
@@ -229,11 +252,11 @@ export class UserService {
   static async getFollowers(userId: string): Promise<Array<{
     id: string;
     username: string;
-    nickname: string;
+    name: string;
   }>> {
     const user = await User.findById(userId)
       .select('followers')
-      .populate('followers', 'username nickname');
+      .populate('followers', 'username name');
 
     if (!user) {
       throw new Error('User not found');
@@ -242,7 +265,7 @@ export class UserService {
     return (user.followers as any[]).map((f: any) => ({
       id: f._id.toString(),
       username: f.username,
-      nickname: f.nickname
+      name: f.name
     }));
   }
 
@@ -252,11 +275,11 @@ export class UserService {
   static async getFollowing(userId: string): Promise<Array<{
     id: string;
     username: string;
-    nickname: string;
+    name: string;
   }>> {
     const user = await User.findById(userId)
       .select('following')
-      .populate('following', 'username nickname');
+      .populate('following', 'username name');
 
     if (!user) {
       throw new Error('User not found');
@@ -265,7 +288,7 @@ export class UserService {
     return (user.following as any[]).map((f: any) => ({
       id: f._id.toString(),
       username: f.username,
-      nickname: f.nickname
+      name: f.name
     }));
   }
 
@@ -312,11 +335,11 @@ export class UserService {
       const notification = await Notification.create({
         userId: targetUser._id,
         type: 'follow',
-        message: `@${currentUser.nickname || currentUser.username} started to follow you`,
+        message: `@${currentUser.username} started to follow you`,
         fromUser: {
           id: currentUser._id,
           username: currentUser.username,
-          nickname: currentUser.nickname
+          name: currentUser.name
         }
       });
 
@@ -430,6 +453,77 @@ export class UserService {
     await Promise.all([currentUser.save(), followerUser.save()]);
 
     return { success: true, message: 'Successfully removed follower' };
+  }
+
+  /**
+   * Update user profile
+   */
+  static async updateProfile(
+    userId: string,
+    data: { name?: string; avatar?: string; banner?: string; username?: string },
+    files?: { [fieldname: string]: Express.Multer.File[] }
+  ): Promise<{ success: boolean; message: string; canChangeUsernameAt?: Date }> {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Handle username update with 30-day restriction
+    if (data.username !== undefined && data.username !== user.username) {
+      // Check if username is already taken
+      const existingUser = await User.findOne({ username: data.username, _id: { $ne: userId } });
+      if (existingUser) {
+        throw new Error('Username is already taken');
+      }
+
+      // Check 30-day restriction
+      if (user.usernameLastChanged) {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        if (user.usernameLastChanged > thirtyDaysAgo) {
+          const canChangeAt = new Date(user.usernameLastChanged.getTime() + 30 * 24 * 60 * 60 * 1000);
+          return {
+            success: false,
+            message: `You can change your username again on ${canChangeAt.toLocaleDateString()}`,
+            canChangeUsernameAt: canChangeAt
+          };
+        }
+      }
+
+      user.username = data.username;
+      user.usernameLastChanged = new Date();
+    }
+
+    // Handle name update
+    if (data.name !== undefined) {
+      user.name = data.name;
+    }
+
+    // Handle avatar update
+    if (files && files['avatar'] && files['avatar'][0]) {
+      const compressedBuffer = await sharp(files['avatar'][0].buffer)
+        .resize(300, 300, { fit: 'cover' })
+        .webp({ quality: 70 })
+        .toBuffer();
+      user.avatar = `data:image/webp;base64,${compressedBuffer.toString('base64')}`;
+    }
+
+    // Handle banner update
+    if (files && files['banner'] && files['banner'][0]) {
+      const compressedBuffer = await sharp(files['banner'][0].buffer)
+        .resize(1200, 350, { fit: 'cover' })
+        .webp({ quality: 80 })
+        .toBuffer();
+      user.banner = `data:image/webp;base64,${compressedBuffer.toString('base64')}`;
+    }
+
+    if (data.avatar !== undefined && !files) {
+      user.avatar = data.avatar;
+    }
+
+    await user.save();
+
+    return { success: true, message: 'Profile updated successfully' };
   }
 }
 

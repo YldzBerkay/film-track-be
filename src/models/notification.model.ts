@@ -7,7 +7,7 @@ export interface INotification extends Document {
     fromUser: {
         id: mongoose.Types.ObjectId;
         username: string;
-        nickname: string;
+        name: string;
     };
     read: boolean;
     data?: any;
@@ -34,7 +34,7 @@ const notificationSchema = new Schema<INotification>(
         fromUser: {
             id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
             username: { type: String, required: true },
-            nickname: { type: String, required: true }
+            name: { type: String }
         },
         read: {
             type: Boolean,

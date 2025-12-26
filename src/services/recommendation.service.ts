@@ -212,7 +212,7 @@ export class RecommendationService {
         try {
             // 1. Get all users (current user + friends)
             const allUserIds = [userId, ...friendIds];
-            const users = await User.find({ _id: { $in: allUserIds } }).select('favoriteTvShows username');
+            const users = await User.find({ _id: { $in: allUserIds } }).select('favoriteTvShows username name');
 
             if (users.length !== allUserIds.length) {
                 throw new Error('One or more users not found');
@@ -281,7 +281,7 @@ export class RecommendationService {
                             runtime: showDetails.episode_run_time[0] || 30,
                             overview: episode.overview || showDetails.overview,
                             stillPath: episode.still_path ? TMDBService.getBackdropUrl(episode.still_path) : null,
-                            sharedWith: friendUsers.map(u => u.username)
+                            sharedWith: friendUsers.map(u => u.name || u.username)
                         };
                     }
                 } catch (err) {

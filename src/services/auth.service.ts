@@ -5,7 +5,6 @@ import crypto from 'crypto';
 
 interface RegisterData {
   username: string;
-  nickname: string;
   email: string;
   password: string;
 }
@@ -49,7 +48,6 @@ export class AuthService {
     // Create new user
     const user = new User({
       username: data.username,
-      nickname: data.nickname,
       email: data.email,
       password: data.password
     });

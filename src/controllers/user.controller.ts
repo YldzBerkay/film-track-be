@@ -180,5 +180,32 @@ export class UserController {
       });
     }
   }
+
+  static async updateProfile(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { name, avatar, username } = req.body;
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
+      const result = await UserService.updateProfile(userId, { name, avatar, username }, files);
+
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to update profile'
+      });
+    }
+  }
 }
 

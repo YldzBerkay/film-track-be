@@ -3,7 +3,10 @@ import bcrypt from 'bcrypt';
 
 export interface IUser extends Document {
   username: string;
-  nickname: string;
+  usernameLastChanged: Date | null;
+  name: string;
+  avatar: string | null;
+  banner: string | null;
   email: string;
   password: string;
   profileSettings: {
@@ -54,12 +57,22 @@ const userSchema = new Schema<IUser>(
       minlength: [3, 'Username must be at least 3 characters'],
       maxlength: [30, 'Username cannot exceed 30 characters']
     },
-    nickname: {
+    usernameLastChanged: {
+      type: Date,
+      default: null
+    },
+    name: {
       type: String,
-      required: [true, 'Nickname is required'],
       trim: true,
-      minlength: [2, 'Nickname must be at least 2 characters'],
-      maxlength: [50, 'Nickname cannot exceed 50 characters']
+      maxlength: [100, 'Name cannot exceed 100 characters']
+    },
+    avatar: {
+      type: String,
+      default: null
+    },
+    banner: {
+      type: String,
+      default: null
     },
     email: {
       type: String,
