@@ -29,7 +29,7 @@ interface AuthResponse {
 export class AuthService {
   private static readonly JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
   private static readonly JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '15m';
-  private static readonly REFRESH_TOKEN_EXPIRES_IN_DAYS = 30;
+  private static readonly REFRESH_TOKEN_EXPIRES_IN_DAYS = 14; // 2 weeks with sliding expiration
 
   static async register(data: RegisterData): Promise<AuthResponse> {
     // Check if user already exists
