@@ -1,0 +1,72 @@
+import mongoose, { Document, Schema } from 'mongoose';
+
+export interface IActivity extends Document {
+  userId: mongoose.Types.ObjectId;
+  type: 'movie_watched' | 'tv_episode_watched' | 'tv_show_watched' | 'review' | 'rating';
+  mediaType: 'movie' | 'tv_show' | 'tv_episode';
+  tmdbId: number;
+  mediaTitle: string;
+  mediaPosterPath: string | null;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  episodeTitle?: string;
+  rating?: number;
+  reviewText?: string;
+  isSpoiler: boolean;
+  genres?: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const activitySchema = new Schema<IActivity>(
+  {
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    type: {
+      type: String,
+      enum: ['movie_watched', 'tv_episode_watched', 'tv_show_watched', 'review', 'rating'],
+      required: true
+    },
+    mediaType: {
+      type: String,
+      enum: ['movie', 'tv_show', 'tv_episode'],
+      required: true
+    },
+    tmdbId: {
+      type: Number,
+      required: true
+    },
+    mediaTitle: {
+      type: String,
+      required: true
+    },
+    mediaPosterPath: String,
+    seasonNumber: Number,
+    episodeNumber: Number,
+    episodeTitle: String,
+    rating: {
+      type: Number,
+      min: 1,
+      max: 5
+    },
+    reviewText: String,
+    isSpoiler: {
+      type: Boolean,
+      default: false
+    },
+    genres: [String]
+  },
+  {
+    timestamps: true
+  }
+);
+
+// Indexes for frequently queried fields
+activitySchema.index({ userId: 1, createdAt: -1 });
+activitySchema.index({ type: 1, createdAt: -1 });
+
+export const Activity = mongoose.model<IActivity>('Activity', activitySchema);
+
