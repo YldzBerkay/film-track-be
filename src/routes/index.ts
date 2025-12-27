@@ -12,6 +12,8 @@ import badgeRoutes from './badge.routes';
 import analyticsRoutes from './analytics.routes';
 import watchlistRoutes from './watchlist.routes';
 import watchedListRoutes from './watched-list.routes';
+import episodeRatingRoutes from './episode-rating.routes';
+import seasonRatingRoutes from './season-rating.routes';
 
 const router = Router();
 
@@ -29,5 +31,7 @@ router.use('/badges', badgeRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/watchlists', watchlistRoutes);
 router.use('/watched', watchedListRoutes);
+router.use('/episodes', episodeRatingRoutes);
+router.use('/seasons', seasonRatingRoutes);
 
 export default router;
