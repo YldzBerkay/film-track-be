@@ -13,6 +13,9 @@ router.use(authMiddleware);
 // Get watch statistics
 router.get('/stats', WatchedListController.getStats);
 
+// Get detailed watch reports
+router.get('/reports', WatchedListController.getDetailedStats);
+
 // Check if item is watched
 router.get('/check/:tmdbId', WatchedListController.checkItem);
 

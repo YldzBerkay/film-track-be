@@ -8,6 +8,7 @@ export interface IWatchedItem {
     runtime: number;           // Minutes spent watching
     numberOfEpisodes?: number;
     numberOfSeasons?: number;
+    genres?: string[];
     rating?: number;           // 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5
     watchedAt: Date;           // When they watched it
     addedAt: Date;             // When it was added to the list
@@ -47,6 +48,7 @@ const watchedItemSchema = new Schema<IWatchedItem>(
         },
         numberOfEpisodes: Number,
         numberOfSeasons: Number,
+        genres: [String],
         rating: {
             type: Number,
             min: 1,

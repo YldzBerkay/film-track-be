@@ -11,6 +11,7 @@ interface AddItemData {
     runtime: number;
     numberOfEpisodes?: number;
     numberOfSeasons?: number;
+    genres?: string[];
     rating?: number;
     watchedAt?: Date;
 }
@@ -93,6 +94,7 @@ export class WatchedListService {
                         'items.$.rating': item.rating,
                         'items.$.numberOfEpisodes': item.numberOfEpisodes,
                         'items.$.numberOfSeasons': item.numberOfSeasons,
+                        'items.$.genres': item.genres,
                         'items.$.watchedAt': item.watchedAt || new Date()
                     }
                 },
@@ -116,6 +118,7 @@ export class WatchedListService {
                         runtime: item.runtime,
                         numberOfEpisodes: item.numberOfEpisodes,
                         numberOfSeasons: item.numberOfSeasons,
+                        genres: item.genres,
                         rating: item.rating,
                         watchedAt: item.watchedAt || new Date(),
                         addedAt: new Date()
@@ -361,6 +364,89 @@ export class WatchedListService {
         return {
             count: result[0].count,
             averageRating: avg
+        };
+    }
+
+    /**
+     * Get detailed watch statistics for reports
+     */
+    static async getDetailedStats(userId: string): Promise<{
+        totalEpisodes: number;
+        totalSeasons: number;
+        totalTvSeries: number;
+        totalFilms: number;
+        totalTvSeriesRuntime: number;
+        totalFilmsRuntime: number;
+        totalRuntime: number;
+        genreCounts: Record<string, number>;
+        totalRatingCount: number;
+        averageRating: number | null;
+        ratings: Array<{ tmdbId: number; mediaType: 'movie' | 'tv'; title: string; rating: number }>;
+    }> {
+        const watchedList = await this.getUserWatchedList(userId);
+
+        if (!watchedList || watchedList.items.length === 0) {
+            return {
+                totalEpisodes: 0,
+                totalSeasons: 0,
+                totalTvSeries: 0,
+                totalFilms: 0,
+                totalTvSeriesRuntime: 0,
+                totalFilmsRuntime: 0,
+                totalRuntime: 0,
+                genreCounts: {},
+                totalRatingCount: 0,
+                averageRating: null,
+                ratings: []
+            };
+        }
+
+        const movies = watchedList.items.filter(i => i.mediaType === 'movie');
+        const tvShows = watchedList.items.filter(i => i.mediaType === 'tv');
+
+        // Calculate episode and season totals from TV shows
+        const totalEpisodes = tvShows.reduce((sum, show) => sum + (show.numberOfEpisodes || 0), 0);
+        const totalSeasons = tvShows.reduce((sum, show) => sum + (show.numberOfSeasons || 0), 0);
+
+        // Calculate runtimes
+        const totalTvSeriesRuntime = tvShows.reduce((sum, show) => sum + (show.runtime || 0), 0);
+        const totalFilmsRuntime = movies.reduce((sum, movie) => sum + (movie.runtime || 0), 0);
+
+        // Calculate genre counts
+        const genreCounts: Record<string, number> = {};
+        watchedList.items.forEach(item => {
+            if (item.genres && item.genres.length > 0) {
+                item.genres.forEach(genre => {
+                    genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+                });
+            }
+        });
+
+        // Get ratings
+        const ratedItems = watchedList.items.filter(i => i.rating !== undefined && i.rating !== null);
+        const ratings = ratedItems.map(i => ({
+            tmdbId: i.tmdbId,
+            mediaType: i.mediaType,
+            title: i.title,
+            rating: i.rating!
+        }));
+
+        const avgRating = ratedItems.length > 0
+            ? Math.round((ratedItems.reduce((sum, i) => sum + i.rating!, 0) / ratedItems.length) * 10) / 10
+            : null;
+
+        return {
+            totalEpisodes,
+            totalSeasons,
+            totalTvSeries: tvShows.length,
+            totalFilms: movies.length,
+            totalTvSeriesRuntime,
+            totalFilmsRuntime,
+            totalRuntime: watchedList.totalRuntime,
+            genreCounts,
+            totalRatingCount: ratedItems.length,
+            averageRating: avgRating,
+            ratings
         };
     }
 }

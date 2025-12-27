@@ -32,7 +32,10 @@ export class WatchedListController {
     static async addItem(req: AuthRequest, res: Response): Promise<void> {
         try {
             const userId = req.user!.id;
-            const { tmdbId, mediaType, title, posterPath, runtime, rating, watchedAt, numberOfEpisodes, numberOfSeasons } = req.body;
+            const {
+                tmdbId, mediaType, title, posterPath, runtime,
+                numberOfEpisodes, numberOfSeasons, genres, rating, watchedAt
+            } = req.body;
 
             if (!tmdbId || !mediaType || !title || runtime === undefined) {
                 res.status(400).json({
@@ -67,6 +70,7 @@ export class WatchedListController {
                 rating,
                 numberOfEpisodes,
                 numberOfSeasons,
+                genres,
                 watchedAt: watchedAt ? new Date(watchedAt) : undefined
             });
 
@@ -339,6 +343,28 @@ export class WatchedListController {
             res.status(500).json({
                 success: false,
                 message: 'Failed to get item statistics'
+            });
+        }
+    }
+
+    /**
+     * GET /api/watched/reports
+     * Get detailed watch statistics for reports
+     */
+    static async getDetailedStats(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const stats = await WatchedListService.getDetailedStats(userId);
+
+            res.json({
+                success: true,
+                data: stats
+            });
+        } catch (error) {
+            console.error('Get detailed stats error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to get detailed statistics'
             });
         }
     }
