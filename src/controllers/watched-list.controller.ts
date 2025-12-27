@@ -73,7 +73,7 @@ export class WatchedListController {
                 return;
             }
 
-            const watchedList = await WatchedListService.addItem(userId, {
+            const { watchedList, newStreak } = await WatchedListService.addItem(userId, {
                 tmdbId,
                 mediaType,
                 title,
@@ -88,7 +88,10 @@ export class WatchedListController {
 
             res.json({
                 success: true,
-                data: { watchedList }
+                data: {
+                    watchedList,
+                    newStreak
+                }
             });
         } catch (error) {
             console.error('Add watched item error:', error);

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { RecommendationService } from '../services/recommendation.service';
 import { UserService } from '../services/user.service';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { User } from '../models/user.model';
 
 export class RecommendationController {
     static async getMealtimePick(req: AuthRequest, res: Response) {
@@ -37,9 +38,16 @@ export class RecommendationController {
             const lang = req.query.lang as string | undefined;
             const dailyPick = await RecommendationService.getDailyRandomMovie(userId, lang);
 
+            // Fetch current streak
+            const user = await User.findById(userId).select('streak');
+            const dailyStreak = user?.streak?.current || 0;
+
             return res.status(200).json({
                 success: true,
-                data: dailyPick
+                data: {
+                    ...dailyPick,
+                    dailyStreak
+                }
             });
         } catch (error) {
             console.error('Error fetching daily pick:', error);

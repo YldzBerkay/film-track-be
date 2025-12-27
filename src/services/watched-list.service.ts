@@ -1,6 +1,7 @@
 import { WatchedList, IWatchedList, IWatchedItem } from '../models/watched-list.model';
 import mongoose from 'mongoose';
 import { TMDBService } from './tmdb.service';
+import { User } from '../models/user.model';
 
 const DEFAULT_WATCHED_LIST_NAME = 'Watched';
 
@@ -69,7 +70,7 @@ export class WatchedListService {
     /**
      * Add an item to the watched list
      */
-    static async addItem(userId: string, item: AddItemData): Promise<IWatchedList | null> {
+    static async addItem(userId: string, item: AddItemData): Promise<{ watchedList: IWatchedList | null, newStreak?: number }> {
         // First ensure the list exists
         await this.ensureDefaultWatchedList(userId);
 
@@ -81,9 +82,11 @@ export class WatchedListService {
             'items.mediaType': item.mediaType
         });
 
+        let resultWatchedList: IWatchedList | null = null;
+
         if (existingItem) {
             // Item already exists, update it instead
-            return WatchedList.findOneAndUpdate(
+            resultWatchedList = await WatchedList.findOneAndUpdate(
                 {
                     userId: new mongoose.Types.ObjectId(userId),
                     isDefault: true,
@@ -101,51 +104,77 @@ export class WatchedListService {
                 },
                 { new: true }
             );
-        }
-
-        // AUTO-FIX: Fetch missing genres if not provided
-        if (!item.genres || item.genres.length === 0) {
-            try {
-                if (item.mediaType === 'movie') {
-                    const details = await TMDBService.getMovieDetails(item.tmdbId.toString());
-                    item.genres = details.genres?.map(g => g.name) || [];
-                } else if (item.mediaType === 'tv') {
-                    const details = await TMDBService.getShowDetails(item.tmdbId.toString());
-                    item.genres = details.genres?.map(g => g.name) || [];
+        } else {
+            // AUTO-FIX: Fetch missing genres if not provided
+            if (!item.genres || item.genres.length === 0) {
+                try {
+                    if (item.mediaType === 'movie') {
+                        const details = await TMDBService.getMovieDetails(item.tmdbId.toString());
+                        item.genres = details.genres?.map(g => g.name) || [];
+                    } else if (item.mediaType === 'tv') {
+                        const details = await TMDBService.getShowDetails(item.tmdbId.toString());
+                        item.genres = details.genres?.map(g => g.name) || [];
+                    }
+                } catch (error) {
+                    console.warn(`Failed to auto-fetch genres for ${item.title}:`, error);
                 }
-            } catch (error) {
-                console.warn(`Failed to auto-fetch genres for ${item.title}:`, error);
             }
-        }
 
-        // Add new item and update total runtime
-        return WatchedList.findOneAndUpdate(
-            {
-                userId: new mongoose.Types.ObjectId(userId),
-                isDefault: true
-            },
-            {
-                $push: {
-                    items: {
-                        tmdbId: item.tmdbId,
-                        mediaType: item.mediaType,
-                        title: item.title,
-                        posterPath: item.posterPath,
-                        runtime: item.runtime,
-                        numberOfEpisodes: item.numberOfEpisodes,
-                        numberOfSeasons: item.numberOfSeasons,
-                        genres: item.genres,
-                        rating: item.rating,
-                        watchedAt: item.watchedAt || new Date(),
-                        addedAt: new Date()
+            // Add new item and update total runtime
+            resultWatchedList = await WatchedList.findOneAndUpdate(
+                {
+                    userId: new mongoose.Types.ObjectId(userId),
+                    isDefault: true
+                },
+                {
+                    $push: {
+                        items: {
+                            tmdbId: item.tmdbId,
+                            mediaType: item.mediaType,
+                            title: item.title,
+                            posterPath: item.posterPath,
+                            runtime: item.runtime,
+                            numberOfEpisodes: item.numberOfEpisodes,
+                            numberOfSeasons: item.numberOfSeasons,
+                            genres: item.genres,
+                            rating: item.rating,
+                            watchedAt: item.watchedAt || new Date(),
+                            addedAt: new Date()
+                        }
+                    },
+                    $inc: {
+                        totalRuntime: item.runtime
                     }
                 },
-                $inc: {
-                    totalRuntime: item.runtime
+                { new: true }
+            );
+        }
+
+        // --- Daily Pick Streak Logic ---
+        let newStreak: number | undefined;
+        try {
+            const user = await User.findById(userId);
+            if (user && user.dailyPick && user.dailyPick.tmdbId === item.tmdbId) {
+                // Check if we ALREADY incremented for today/this pick (Idempotency)
+                if (!user.dailyPick.watched) {
+                    // Update Daily Pick status
+                    user.dailyPick.watched = true;
+
+                    // Increment Streak
+                    user.streak.current = (user.streak.current || 0) + 1;
+                    user.streak.lastLoginDate = new Date(); // Update last activity for streak
+
+                    await user.save();
+                    newStreak = user.streak.current;
+                    console.log(`[Streak] User ${userId} completed Daily Pick! Streak incremented to ${newStreak}.`);
                 }
-            },
-            { new: true }
-        );
+            }
+        } catch (error) {
+            console.error('Error in Daily Pick Streak check:', error);
+            // Don't fail the whole request effectively, just log error
+        }
+
+        return { watchedList: resultWatchedList, newStreak };
     }
 
     /**
