@@ -22,6 +22,12 @@ router.post('/items', WatchedListController.addItem);
 // Update item rating
 router.patch('/items/:tmdbId/rating', WatchedListController.updateRating);
 
+// Update privacy settings
+router.patch('/privacy', WatchedListController.updatePrivacy);
+
+// Reorder items
+router.patch('/reorder', WatchedListController.reorderItems);
+
 // Remove item from watched list
 router.delete('/items/:tmdbId', WatchedListController.removeItem);
 

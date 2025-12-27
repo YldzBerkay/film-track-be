@@ -15,7 +15,9 @@ type WatchlistLean = {
     _id: mongoose.Types.ObjectId;
     userId: mongoose.Types.ObjectId;
     name: string;
+    icon?: string;
     isDefault: boolean;
+    privacyStatus: number;
     items: IWatchlistItem[];
     createdAt: Date;
     updatedAt: Date;
@@ -218,5 +220,60 @@ export class WatchlistService {
             return existing;
         }
         return this.createDefaultWatchlist(userId);
+    }
+
+    /**
+     * Update privacy status of a watchlist
+     */
+    static async updatePrivacy(watchlistId: string, userId: string, privacyStatus: number): Promise<{ success: boolean; watchlist?: IWatchlist; message?: string }> {
+        const watchlist = await Watchlist.findOne({
+            _id: new mongoose.Types.ObjectId(watchlistId),
+            userId: new mongoose.Types.ObjectId(userId)
+        });
+
+        if (!watchlist) {
+            return { success: false, message: 'Watchlist not found' };
+        }
+
+        const updated = await Watchlist.findOneAndUpdate(
+            { _id: watchlist._id },
+            { privacyStatus },
+            { new: true }
+        );
+
+        return { success: true, watchlist: updated || undefined };
+    }
+
+    /**
+     * Reorder items in a watchlist
+     */
+    static async reorderItems(watchlistId: string, userId: string, orderedTmdbIds: number[]): Promise<{ success: boolean; watchlist?: IWatchlist; message?: string }> {
+        const watchlist = await Watchlist.findOne({
+            _id: new mongoose.Types.ObjectId(watchlistId),
+            userId: new mongoose.Types.ObjectId(userId)
+        });
+
+        if (!watchlist) {
+            return { success: false, message: 'Watchlist not found' };
+        }
+
+        // Create a map of tmdbId to item
+        const itemMap = new Map(watchlist.items.map(item => [item.tmdbId, item]));
+
+        // Reorder items based on the provided order
+        const reorderedItems = orderedTmdbIds
+            .filter(id => itemMap.has(id))
+            .map(id => itemMap.get(id)!);
+
+        // Any items not in the ordered list go at the end (shouldn't happen, but safety)
+        const remainingItems = watchlist.items.filter(item => !orderedTmdbIds.includes(item.tmdbId));
+
+        const updated = await Watchlist.findOneAndUpdate(
+            { _id: watchlist._id },
+            { items: [...reorderedItems, ...remainingItems] },
+            { new: true }
+        );
+
+        return { success: true, watchlist: updated || undefined };
     }
 }

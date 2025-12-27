@@ -13,6 +13,7 @@ export interface IWatchlist extends Document {
     name: string;
     icon?: string;  // Material icon name for custom lists
     isDefault: boolean;
+    privacyStatus: number;  // 0=everyone, 1=friends, 2=nobody
     items: IWatchlistItem[];
     createdAt: Date;
     updatedAt: Date;
@@ -64,6 +65,11 @@ const watchlistSchema = new Schema<IWatchlist>(
         isDefault: {
             type: Boolean,
             default: false
+        },
+        privacyStatus: {
+            type: Number,
+            enum: [0, 1, 2],  // 0=everyone, 1=friends, 2=nobody
+            default: 0
         },
         items: [watchlistItemSchema]
     },

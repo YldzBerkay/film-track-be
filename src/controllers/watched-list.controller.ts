@@ -230,4 +230,84 @@ export class WatchedListController {
             });
         }
     }
+
+    /**
+     * PATCH /api/watched/privacy
+     * Update privacy status of watched list
+     */
+    static async updatePrivacy(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { privacyStatus } = req.body;
+
+            if (privacyStatus === undefined || ![0, 1, 2].includes(privacyStatus)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'privacyStatus must be 0 (everyone), 1 (friends), or 2 (nobody)'
+                });
+                return;
+            }
+
+            const result = await WatchedListService.updatePrivacy(userId, privacyStatus);
+
+            if (!result.success) {
+                res.status(400).json({
+                    success: false,
+                    message: result.message
+                });
+                return;
+            }
+
+            res.json({
+                success: true,
+                data: { watchedList: result.watchedList }
+            });
+        } catch (error) {
+            console.error('Update privacy error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to update privacy settings'
+            });
+        }
+    }
+
+    /**
+     * PATCH /api/watched/reorder
+     * Reorder items in the watched list
+     */
+    static async reorderItems(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { orderedTmdbIds } = req.body;
+
+            if (!orderedTmdbIds || !Array.isArray(orderedTmdbIds)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'orderedTmdbIds is required and must be an array'
+                });
+                return;
+            }
+
+            const result = await WatchedListService.reorderItems(userId, orderedTmdbIds);
+
+            if (!result.success) {
+                res.status(404).json({
+                    success: false,
+                    message: result.message
+                });
+                return;
+            }
+
+            res.json({
+                success: true,
+                data: { watchedList: result.watchedList }
+            });
+        } catch (error) {
+            console.error('Reorder watched list items error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to reorder items'
+            });
+        }
+    }
 }

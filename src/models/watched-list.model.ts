@@ -15,6 +15,7 @@ export interface IWatchedList extends Document {
     userId: mongoose.Types.ObjectId;
     name: string;
     isDefault: boolean;
+    privacyStatus: number;  // 0=everyone, 1=friends, 2=nobody
     items: IWatchedItem[];
     totalRuntime: number;      // Cached total runtime in minutes
     createdAt: Date;
@@ -83,6 +84,11 @@ const watchedListSchema = new Schema<IWatchedList>(
         isDefault: {
             type: Boolean,
             default: true
+        },
+        privacyStatus: {
+            type: Number,
+            enum: [0, 1, 2],  // 0=everyone, 1=friends, 2=nobody
+            default: 0
         },
         items: [watchedItemSchema],
         totalRuntime: {

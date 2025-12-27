@@ -25,6 +25,12 @@ router.get('/:id', WatchlistController.getWatchlist);
 // Rename a watchlist
 router.patch('/:id/name', WatchlistController.renameList);
 
+// Update privacy settings
+router.patch('/:id/privacy', WatchlistController.updatePrivacy);
+
+// Reorder items
+router.patch('/:id/reorder', WatchlistController.reorderItems);
+
 // Delete a watchlist (only non-default)
 router.delete('/:id', WatchlistController.deleteList);
 

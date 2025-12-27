@@ -320,4 +320,86 @@ export class WatchlistController {
             });
         }
     }
+
+    /**
+     * PATCH /api/watchlists/:id/privacy
+     * Update privacy status of a watchlist
+     */
+    static async updatePrivacy(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { id } = req.params;
+            const { privacyStatus } = req.body;
+
+            if (privacyStatus === undefined || ![0, 1, 2].includes(privacyStatus)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'privacyStatus must be 0 (everyone), 1 (friends), or 2 (nobody)'
+                });
+                return;
+            }
+
+            const result = await WatchlistService.updatePrivacy(id, userId, privacyStatus);
+
+            if (!result.success) {
+                res.status(400).json({
+                    success: false,
+                    message: result.message
+                });
+                return;
+            }
+
+            res.json({
+                success: true,
+                data: { watchlist: result.watchlist }
+            });
+        } catch (error) {
+            console.error('Update privacy error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to update privacy settings'
+            });
+        }
+    }
+
+    /**
+     * PATCH /api/watchlists/:id/reorder
+     * Reorder items in a watchlist
+     */
+    static async reorderItems(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { id } = req.params;
+            const { orderedTmdbIds } = req.body;
+
+            if (!orderedTmdbIds || !Array.isArray(orderedTmdbIds)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'orderedTmdbIds is required and must be an array'
+                });
+                return;
+            }
+
+            const result = await WatchlistService.reorderItems(id, userId, orderedTmdbIds);
+
+            if (!result.success) {
+                res.status(404).json({
+                    success: false,
+                    message: result.message
+                });
+                return;
+            }
+
+            res.json({
+                success: true,
+                data: { watchlist: result.watchlist }
+            });
+        } catch (error) {
+            console.error('Reorder watchlist items error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to reorder items'
+            });
+        }
+    }
 }
