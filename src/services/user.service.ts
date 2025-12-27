@@ -39,7 +39,7 @@ interface UserProfileResponse {
 }
 
 export class UserService {
-  static async getUserProfile(username: string, currentUserId?: string): Promise<UserProfileResponse> {
+  static async getUserProfile(username: string, currentUserId?: string, lang?: string): Promise<UserProfileResponse> {
     const user = await User.findOne({ username }).select('-password');
 
     if (!user) {
@@ -83,7 +83,7 @@ export class UserService {
       }
     }
 
-    return {
+    const response = {
       user: {
         id: user._id.toString(),
         username: user.username,
@@ -106,9 +106,51 @@ export class UserService {
       reviewCount,
       isFollowedByMe
     };
+
+    if (lang) {
+      const { MovieService } = await import('./movie.service');
+      const movieItems = user.favoriteMovies.map(m => ({
+        tmdbId: m.tmdbId,
+        mediaType: 'movie' as const,
+        title: m.title,
+        posterPath: m.posterPath,
+        releaseDate: m.releaseDate
+      }));
+      const tvItems = user.favoriteTvShows.map(s => ({
+        tmdbId: s.tmdbId,
+        mediaType: 'tv' as const,
+        title: s.name,
+        posterPath: s.posterPath,
+        firstAirDate: s.firstAirDate
+      }));
+
+      const hydratedMovies = await MovieService.hydrateItems(movieItems, lang);
+      const hydratedTvShows = await MovieService.hydrateItems(tvItems, lang);
+
+      return {
+        ...response,
+        user: {
+          ...response.user,
+          favoriteMovies: hydratedMovies.map(m => ({
+            tmdbId: m.tmdbId,
+            title: m.title,
+            posterPath: m.posterPath,
+            releaseDate: m.releaseDate
+          })),
+          favoriteTvShows: hydratedTvShows.map(s => ({
+            tmdbId: s.tmdbId,
+            name: s.title,
+            posterPath: s.posterPath,
+            firstAirDate: s.firstAirDate
+          }))
+        }
+      };
+    }
+
+    return response;
   }
 
-  static async getCurrentUserProfile(userId: string): Promise<UserProfileResponse> {
+  static async getCurrentUserProfile(userId: string, lang?: string): Promise<UserProfileResponse> {
     const user = await User.findById(userId).select('-password');
 
     if (!user) {
@@ -138,7 +180,7 @@ export class UserService {
       type: 'review'
     });
 
-    return {
+    const response = {
       user: {
         id: user._id.toString(),
         username: user.username,
@@ -160,6 +202,48 @@ export class UserService {
       recentActivities,
       reviewCount
     };
+
+    if (lang) {
+      const { MovieService } = await import('./movie.service');
+      const movieItems = user.favoriteMovies.map(m => ({
+        tmdbId: m.tmdbId,
+        mediaType: 'movie' as const,
+        title: m.title,
+        posterPath: m.posterPath,
+        releaseDate: m.releaseDate
+      }));
+      const tvItems = user.favoriteTvShows.map(s => ({
+        tmdbId: s.tmdbId,
+        mediaType: 'tv' as const,
+        title: s.name,
+        posterPath: s.posterPath,
+        firstAirDate: s.firstAirDate
+      }));
+
+      const hydratedMovies = await MovieService.hydrateItems(movieItems, lang);
+      const hydratedTvShows = await MovieService.hydrateItems(tvItems, lang);
+
+      return {
+        ...response,
+        user: {
+          ...response.user,
+          favoriteMovies: hydratedMovies.map(m => ({
+            tmdbId: m.tmdbId,
+            title: m.title,
+            posterPath: m.posterPath,
+            releaseDate: m.releaseDate
+          })),
+          favoriteTvShows: hydratedTvShows.map(s => ({
+            tmdbId: s.tmdbId,
+            name: s.title,
+            posterPath: s.posterPath,
+            firstAirDate: s.firstAirDate
+          }))
+        }
+      };
+    }
+
+    return response;
   }
   static async searchUsers(query: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;

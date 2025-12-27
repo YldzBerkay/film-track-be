@@ -7,8 +7,9 @@ export class UserController {
     try {
       const { username } = req.params;
       const currentUserId = req.user?.id; // May be undefined if not authenticated
+      const lang = req.query.lang as string;
 
-      const profile = await UserService.getUserProfile(username, currentUserId);
+      const profile = await UserService.getUserProfile(username, currentUserId, lang);
 
       res.status(200).json({
         success: true,
@@ -22,6 +23,7 @@ export class UserController {
   static async getCurrentProfile(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const userId = req.user?.id;
+      const lang = req.query.lang as string;
 
       if (!userId) {
         res.status(401).json({
@@ -32,7 +34,7 @@ export class UserController {
         return;
       }
 
-      const profile = await UserService.getCurrentUserProfile(userId);
+      const profile = await UserService.getCurrentUserProfile(userId, lang);
 
       res.status(200).json({
         success: true,
