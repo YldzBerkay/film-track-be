@@ -1,5 +1,6 @@
 import { WatchedList, IWatchedList, IWatchedItem } from '../models/watched-list.model';
 import mongoose from 'mongoose';
+import { TMDBService } from './tmdb.service';
 
 const DEFAULT_WATCHED_LIST_NAME = 'Watched';
 
@@ -100,6 +101,21 @@ export class WatchedListService {
                 },
                 { new: true }
             );
+        }
+
+        // AUTO-FIX: Fetch missing genres if not provided
+        if (!item.genres || item.genres.length === 0) {
+            try {
+                if (item.mediaType === 'movie') {
+                    const details = await TMDBService.getMovieDetails(item.tmdbId.toString());
+                    item.genres = details.genres?.map(g => g.name) || [];
+                } else if (item.mediaType === 'tv') {
+                    const details = await TMDBService.getShowDetails(item.tmdbId.toString());
+                    item.genres = details.genres?.map(g => g.name) || [];
+                }
+            } catch (error) {
+                console.warn(`Failed to auto-fetch genres for ${item.title}:`, error);
+            }
         }
 
         // Add new item and update total runtime
@@ -379,9 +395,14 @@ export class WatchedListService {
         totalFilmsRuntime: number;
         totalRuntime: number;
         genreCounts: Record<string, number>;
+        genreRatings: {
+            all: Array<{ genre: string; averageRating: number; count: number; lastRatedAt: Date }>;
+            top: Array<{ genre: string; averageRating: number; count: number; lastRatedAt: Date }>;
+            bottom: Array<{ genre: string; averageRating: number; count: number; lastRatedAt: Date }>;
+        };
         totalRatingCount: number;
         averageRating: number | null;
-        ratings: Array<{ tmdbId: number; mediaType: 'movie' | 'tv'; title: string; rating: number }>;
+        ratings: Array<{ tmdbId: number; mediaType: 'movie' | 'tv'; title: string; rating: number; watchedAt: Date }>;
     }> {
         const watchedList = await this.getUserWatchedList(userId);
 
@@ -395,6 +416,7 @@ export class WatchedListService {
                 totalFilmsRuntime: 0,
                 totalRuntime: 0,
                 genreCounts: {},
+                genreRatings: { all: [], top: [], bottom: [] },
                 totalRatingCount: 0,
                 averageRating: null,
                 ratings: []
@@ -428,12 +450,68 @@ export class WatchedListService {
             tmdbId: i.tmdbId,
             mediaType: i.mediaType,
             title: i.title,
-            rating: i.rating!
+            rating: i.rating!,
+            watchedAt: i.watchedAt
         }));
 
         const avgRating = ratedItems.length > 0
             ? Math.round((ratedItems.reduce((sum, i) => sum + i.rating!, 0) / ratedItems.length) * 10) / 10
             : null;
+
+        // Calculate genre ratings with time decay
+        const TIME_DECAY_DAYS = 7;
+        const MAX_DAYS = 90;
+        const now = new Date();
+
+        const calculateTimeDecay = (watchedAt: Date): number => {
+            const daysDiff = Math.floor((now.getTime() - new Date(watchedAt).getTime()) / (1000 * 60 * 60 * 24));
+            if (daysDiff <= TIME_DECAY_DAYS) {
+                return 1.0;
+            } else if (daysDiff <= MAX_DAYS) {
+                const decayRange = MAX_DAYS - TIME_DECAY_DAYS;
+                const decayProgress = (daysDiff - TIME_DECAY_DAYS) / decayRange;
+                return 1.0 - decayProgress * 0.5;
+            }
+            return 0.5;
+        };
+
+        // Genre rating aggregation: { genre: { totalWeightedRating, totalWeight, count, lastRatedAt } }
+        const genreRatingAgg: Record<string, { totalWeightedRating: number; totalWeight: number; count: number; lastRatedAt: Date }> = {};
+
+        ratedItems.forEach(item => {
+            if (item.genres && item.genres.length > 0 && item.rating) {
+                const timeDecay = calculateTimeDecay(item.watchedAt);
+                const ratingWeight = item.rating / 10; // 1-10 scale
+                const combinedWeight = ratingWeight * timeDecay;
+
+                item.genres.forEach(genre => {
+                    if (!genreRatingAgg[genre]) {
+                        genreRatingAgg[genre] = { totalWeightedRating: 0, totalWeight: 0, count: 0, lastRatedAt: item.watchedAt };
+                    }
+                    genreRatingAgg[genre].totalWeightedRating += item.rating! * combinedWeight;
+                    genreRatingAgg[genre].totalWeight += combinedWeight;
+                    genreRatingAgg[genre].count += 1;
+
+                    // Update lastRatedAt if newer
+                    if (item.watchedAt > genreRatingAgg[genre].lastRatedAt) {
+                        genreRatingAgg[genre].lastRatedAt = item.watchedAt;
+                    }
+                });
+            }
+        });
+
+        // Calculate weighted average rating for each genre
+        const genreRatings = Object.entries(genreRatingAgg)
+            .map(([genre, data]) => ({
+                genre,
+                averageRating: Math.round((data.totalWeightedRating / data.totalWeight) * 10) / 10,
+                count: data.count,
+                lastRatedAt: data.lastRatedAt
+            }))
+            .sort((a, b) => b.averageRating - a.averageRating);
+
+        const topGenres = genreRatings.slice(0, 5);
+        const bottomGenres = genreRatings.slice(-5).reverse();
 
         return {
             totalEpisodes,
@@ -444,6 +522,11 @@ export class WatchedListService {
             totalFilmsRuntime,
             totalRuntime: watchedList.totalRuntime,
             genreCounts,
+            genreRatings: {
+                all: genreRatings,
+                top: topGenres,
+                bottom: bottomGenres
+            },
             totalRatingCount: ratedItems.length,
             averageRating: avgRating,
             ratings

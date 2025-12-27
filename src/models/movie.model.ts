@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IMovie extends Document {
   tmdbId: number;
+  mediaType: 'movie' | 'tv';
   title: string;
   overview?: string;
   releaseDate?: string;
@@ -19,6 +20,14 @@ export interface IMovie extends Document {
     inspiration: number;
   };
   aiProcessedAt?: Date;
+  genres?: string[];
+  translations?: {
+    iso_639_1: string;
+    title: string;
+    overview: string;
+    posterPath: string;
+    genres: string[];
+  }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,16 +37,29 @@ const movieSchema = new Schema<IMovie>(
     tmdbId: {
       type: Number,
       required: true,
-      unique: true,
       index: true
+    },
+    mediaType: {
+      type: String,
+      enum: ['movie', 'tv'],
+      default: 'movie',
+      required: true
     },
     title: {
       type: String,
       required: true
     },
+    genres: [String],
     overview: String,
     releaseDate: String,
     posterPath: String,
+    translations: [{
+      iso_639_1: { type: String, required: true },
+      title: String,
+      overview: String,
+      posterPath: String,
+      genres: [String]
+    }],
     moodVector: {
       adrenaline: {
         type: Number,
@@ -97,7 +119,8 @@ const movieSchema = new Schema<IMovie>(
   }
 );
 
-// Note: tmdbId index is already created by unique:true
+// Compound index for uniqueness (ID + Type)
+movieSchema.index({ tmdbId: 1, mediaType: 1 }, { unique: true });
 
 export const Movie = mongoose.model<IMovie>('Movie', movieSchema);
 

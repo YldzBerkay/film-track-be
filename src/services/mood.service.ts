@@ -1,8 +1,10 @@
 import { UserStats } from '../models/user-stats.model';
 import { Activity } from '../models/activity.model';
+import { WatchedList, IWatchedItem } from '../models/watched-list.model';
 import { Movie } from '../models/movie.model';
 import { MoodSnapshot } from '../models/mood-snapshot.model';
 import { AIService } from './ai.service';
+import { TMDBService } from './tmdb.service';
 
 export interface MoodVector {
   adrenaline: number;
@@ -25,8 +27,8 @@ interface ActivityWithMood {
 }
 
 export class MoodService {
-  private static readonly TIME_DECAY_DAYS = 30;
-  private static readonly MAX_DAYS = 365;
+  private static readonly TIME_DECAY_DAYS = 7;
+  private static readonly MAX_DAYS = 90;
 
   /**
    * Calculate time decay factor
@@ -34,10 +36,7 @@ export class MoodService {
    * Older (30-365 days): Linear decay from 1.0 to 0.5
    * Very old (>365 days): 0.5
    */
-  private static calculateTimeDecay(activityDate: Date): number {
-    const now = new Date();
-    const daysDiff = Math.floor((now.getTime() - activityDate.getTime()) / (1000 * 60 * 60 * 24));
-
+  private static calculateTimeDecay(daysDiff: number): number {
     if (daysDiff <= this.TIME_DECAY_DAYS) {
       return 1.0;
     } else if (daysDiff <= this.MAX_DAYS) {
@@ -51,21 +50,95 @@ export class MoodService {
   }
 
   /**
-   * Convert user rating (1-5) to weight factor
-   * 5 stars = 1.0, 4 stars = 0.8, 3 stars = 0.6, 2 stars = 0.4, 1 star = 0.2
+   * Convert user rating (1-10) to polarized weight factor
+   * POLARIZED INFLUENCE MODEL:
+   * - Negative Zone (1-4): Returns negative weight (-1.0 to -0.25)
+   * - Neutral Zone (5-6): Returns 0 (Noise Filter - no influence)
+   * - Positive Zone (7-10): Returns positive weight (0.25 to 1.0)
+   * 
+   * Formula: (Rating - 5.5) / 4.5 for ratings outside neutral zone
    */
   private static ratingToWeight(rating: number | undefined): number {
-    if (!rating || rating < 1 || rating > 5) {
-      return 0.5; // Default weight for unrated
+    if (!rating || rating < 1 || rating > 10) {
+      return 0; // Unrated items have no influence (previously was 0.5)
     }
-    return rating / 5;
+
+    // Neutral Zone: 5-6 ratings are "noise" - no influence
+    if (rating === 5 || rating === 6) {
+      return 0;
+    }
+
+    // Polarized calculation: Maps 1-4 to negative, 7-10 to positive
+    // Using 5.5 as the neutral threshold
+    const neutralThreshold = 5.5;
+    const rawScore = rating - neutralThreshold;
+
+    // Normalize to [-1, 1] range (max deviation from threshold is 4.5)
+    const polarityCoefficient = rawScore / 4.5;
+
+    return polarityCoefficient;
   }
 
   /**
-   * Calculate user mood from activities
+   * Calculate saturation factor to prevent "Echo Chamber" effect.
+   * If user watches too much similar content, reduce the influence.
+   * @param recentVectors Last K mood vectors from watched content
+   * @param newVector The mood vector of the new item being added
+   * @returns Fatigue factor between 0.5 and 1.0 (1.0 = no fatigue, 0.5 = max fatigue)
+   */
+  private static calculateSaturationFactor(
+    recentVectors: MoodVector[],
+    newVector: MoodVector
+  ): number {
+    if (recentVectors.length < 3) {
+      return 1.0; // Not enough data to determine saturation
+    }
+
+    // Calculate average cosine similarity with recent items
+    const similarities = recentVectors.map(v => this.cosineSimilarity(v, newVector));
+    const avgSimilarity = similarities.reduce((a, b) => a + b, 0) / similarities.length;
+
+    // If average similarity > 0.8, apply fatigue
+    if (avgSimilarity > 0.8) {
+      // Linear fatigue: 0.8 similarity = 1.0 factor, 1.0 similarity = 0.5 factor
+      const fatigueFactor = 1.0 - (avgSimilarity - 0.8) * 2.5;
+      return Math.max(0.5, fatigueFactor);
+    }
+
+    return 1.0;
+  }
+
+  /**
+   * Calculate cosine similarity between two mood vectors
+   */
+  private static cosineSimilarity(a: MoodVector, b: MoodVector): number {
+    const keys: (keyof MoodVector)[] = [
+      'adrenaline', 'melancholy', 'joy', 'tension', 'intellect',
+      'romance', 'wonder', 'nostalgia', 'darkness', 'inspiration'
+    ];
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (const key of keys) {
+      dotProduct += (a[key] || 0) * (b[key] || 0);
+      normA += (a[key] || 0) ** 2;
+      normB += (b[key] || 0) ** 2;
+    }
+
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  /**
+   * Calculate user mood from activities using POLARIZED INFLUENCE MODEL
+   * - Positive ratings (7-10) ADD to the mood profile
+   * - Negative ratings (1-4) SUBTRACT from the mood profile (Anti-Vector)
+   * - Neutral ratings (5-6) are filtered out (Noise)
    */
   static async calculateUserMood(userId: string): Promise<MoodVector> {
-    // Get all movie and TV show activities with ratings
+    // 1. Get activities with ratings
     const activities = await Activity.find({
       userId,
       $or: [
@@ -76,121 +149,178 @@ export class MoodService {
       .sort({ createdAt: -1 })
       .lean();
 
-    if (activities.length === 0) {
-      // Return default mood (neutral)
-      return {
-        adrenaline: 50,
-        melancholy: 50,
-        joy: 50,
-        tension: 50,
-        intellect: 50,
-        romance: 50,
-        wonder: 50,
-        nostalgia: 50,
-        darkness: 50,
-        inspiration: 50
-      };
+    // 2. Get WatchedList items with ratings (Source of Truth for direct adds)
+    const watchedList = await WatchedList.findOne({ userId, isDefault: true }).lean();
+    const watchedListItems = watchedList?.items.filter((i: IWatchedItem) => i.rating && i.rating >= 1) || [];
+
+    // 3. Merge and Deduplicate (prioritizing most recent)
+    // Map key: tmdbId -> Combined Activity-like object
+    const mergedMap = new Map<number, any>();
+
+    // Process activities first
+    for (const act of activities) {
+      const mediaType = act.mediaType === 'tv_show' || act.mediaType === 'tv_episode' ? 'tv' : 'movie';
+
+      mergedMap.set(Number(act.tmdbId), {
+        tmdbId: Number(act.tmdbId),
+        mediaType, // Capture normalized mediaType
+        rating: act.rating,
+        createdAt: act.createdAt,
+        title: act.mediaTitle,
+        type: 'activity',
+        mediaTitle: act.mediaTitle,
+        reviewText: act.reviewText
+      });
     }
 
-    const activitiesWithMood: ActivityWithMood[] = [];
+    // Process watched list items (overwrite if newer or missing)
+    for (const item of watchedListItems) {
+      const existing = mergedMap.get(item.tmdbId);
+      const itemDate = new Date(item.watchedAt || item.addedAt);
 
-    // Get mood vectors for all activities
-    for (const activity of activities) {
+      if (!existing || itemDate > new Date(existing.createdAt)) {
+        mergedMap.set(item.tmdbId, {
+          tmdbId: item.tmdbId,
+          mediaType: item.mediaType === 'tv' ? 'tv' : 'movie', // WatchedList uses 'tv' already
+          rating: item.rating,
+          createdAt: itemDate,
+          title: item.title,
+          type: 'watched_list',
+          mediaTitle: item.title,
+          reviewText: undefined
+        });
+      }
+    }
+
+    // Sort by date descending
+    const mergedItems = Array.from(mergedMap.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const defaultMood: MoodVector = {
+      adrenaline: 50,
+      melancholy: 50,
+      joy: 50,
+      tension: 50,
+      intellect: 50,
+      romance: 50,
+      wonder: 50,
+      nostalgia: 50,
+      darkness: 50,
+      inspiration: 50
+    };
+
+    if (mergedItems.length === 0) {
+      return defaultMood;
+    }
+
+    // 4. Calculate Weighted Average Mood
+    // Baseline (Neutral 50) prevents wild swings with few items. 
+    // Weight=5 means "it takes ~5 strong movies to pull the user significantly away from neutral".
+    const baselineWeight = 5.0;
+
+    // Accumulators
+    const weightedSums: MoodVector = {
+      adrenaline: 50 * baselineWeight,
+      melancholy: 50 * baselineWeight,
+      joy: 50 * baselineWeight,
+      tension: 50 * baselineWeight,
+      intellect: 50 * baselineWeight,
+      romance: 50 * baselineWeight,
+      wonder: 50 * baselineWeight,
+      nostalgia: 50 * baselineWeight,
+      darkness: 50 * baselineWeight,
+      inspiration: 50 * baselineWeight
+    };
+
+    let totalWeight = baselineWeight;
+
+    for (const activity of mergedItems) {
       try {
-        // Get movie from database or analyze with AI
-        let movie = await Movie.findOne({ tmdbId: activity.tmdbId });
-
+        let movie = await Movie.findOne({ tmdbId: activity.tmdbId, mediaType: activity.mediaType });
         let moodVector: MoodVector;
 
         if (movie && movie.moodVector) {
           moodVector = movie.moodVector;
         } else {
-          // Analyze with AI and cache
+          // Fetch movie details from TMDB to get genres, posterPath, releaseDate
+          let genres: string[] = [];
+          let posterPath = '';
+          let releaseDate = '';
+
+          try {
+            const mediaType = activity.mediaType || 'movie';
+            if (mediaType === 'movie') {
+              const details = await TMDBService.getMovieDetails(activity.tmdbId.toString());
+              genres = details.genres?.map(g => g.name) || [];
+              posterPath = details.poster_path || '';
+              releaseDate = details.release_date || '';
+            } else if (mediaType === 'tv') {
+              const details = await TMDBService.getShowDetails(activity.tmdbId.toString());
+              genres = details.genres?.map(g => g.name) || [];
+              posterPath = details.poster_path || '';
+              releaseDate = details.first_air_date || '';
+            }
+          } catch (err) {
+            console.warn(`[MoodService] Failed to fetch TMDB details for ${activity.tmdbId}`);
+          }
+
           moodVector = await AIService.getOrAnalyzeMovie(
             activity.tmdbId,
-            activity.mediaTitle,
-            activity.reviewText
+            activity.mediaType || 'movie',
+            activity.mediaTitle || activity.title,
+            activity.reviewText,
+            genres,
+            posterPath,
+            releaseDate
           );
         }
 
-        const userRating = this.ratingToWeight(activity.rating);
-        const timeDecay = this.calculateTimeDecay(new Date(activity.createdAt));
+        // Calculate Influence Score (Raw - 5.5) / 4.5
+        const rating = activity.rating || 0;
 
-        activitiesWithMood.push({
-          activity,
-          moodVector,
-          userRating,
-          timeDecay
-        });
+        // Noise Filter: Neutral ratings (5-6) are ignored
+        if (rating >= 5 && rating <= 6) continue;
+
+        // Influence: 1-10 mapped to -1.0 to +1.0 roughly
+        const influence = (rating - 5.5) / 4.5;
+
+        const daysSince = (new Date().getTime() - new Date(activity.createdAt).getTime()) / (1000 * 3600 * 24);
+        const timeDecay = Math.max(0.2, this.calculateTimeDecay(daysSince));
+
+        const weight = Math.abs(influence) * timeDecay;
+
+        if (weight > 0) {
+          totalWeight += weight;
+
+          // If influence is Negative, we target the ANTI-VECTOR (100 - Value)
+          // If influence is Positive, we target the VECTOR (Value)
+          (Object.keys(weightedSums) as Array<keyof MoodVector>).forEach(key => {
+            let targetValue = moodVector[key];
+            if (influence < 0) {
+              targetValue = 100 - targetValue; // Invert for hate
+            }
+            // Add weighted contribution
+            weightedSums[key] += targetValue * weight;
+          });
+        }
+
       } catch (error) {
-        console.error(`Error processing activity ${activity._id}:`, error);
-        // Skip this activity
-        continue;
+        console.error(`Failed to process activity ${activity.tmdbId}:`, error);
       }
     }
 
-    // Calculate weighted average
-    const totalWeights = activitiesWithMood.reduce(
-      (sum, item) => sum + item.userRating * item.timeDecay,
-      0
-    );
+    // Final Division & Clamping
+    const clamp = (val: number) => Math.round(Math.max(0, Math.min(100, val)));
 
-    if (totalWeights === 0) {
-      return {
-        adrenaline: 50,
-        melancholy: 50,
-        joy: 50,
-        tension: 50,
-        intellect: 50,
-        romance: 50,
-        wonder: 50,
-        nostalgia: 50,
-        darkness: 50,
-        inspiration: 50
-      };
+    const finalMood: MoodVector = { ...defaultMood };
+    if (totalWeight > 0) {
+      (Object.keys(finalMood) as Array<keyof MoodVector>).forEach(key => {
+        finalMood[key] = clamp(weightedSums[key] / totalWeight);
+      });
     }
 
-    const mood: MoodVector = {
-      adrenaline: 0,
-      melancholy: 0,
-      joy: 0,
-      tension: 0,
-      intellect: 0,
-      romance: 0,
-      wonder: 0,
-      nostalgia: 0,
-      darkness: 0,
-      inspiration: 0
-    };
-
-    for (const item of activitiesWithMood) {
-      const weight = item.userRating * item.timeDecay;
-      mood.adrenaline += (item.moodVector.adrenaline || 0) * weight;
-      mood.melancholy += (item.moodVector.melancholy || 0) * weight;
-      mood.joy += (item.moodVector.joy || 0) * weight;
-      mood.tension += (item.moodVector.tension || 0) * weight;
-      mood.intellect += (item.moodVector.intellect || 0) * weight;
-      mood.romance += (item.moodVector.romance || 0) * weight;
-      mood.wonder += (item.moodVector.wonder || 0) * weight;
-      mood.nostalgia += (item.moodVector.nostalgia || 0) * weight;
-      mood.darkness += (item.moodVector.darkness || 0) * weight;
-      mood.inspiration += (item.moodVector.inspiration || 0) * weight;
-    }
-
-    return {
-      adrenaline: Math.round(mood.adrenaline / totalWeights),
-      melancholy: Math.round(mood.melancholy / totalWeights),
-      joy: Math.round(mood.joy / totalWeights),
-      tension: Math.round(mood.tension / totalWeights),
-      intellect: Math.round(mood.intellect / totalWeights),
-      romance: Math.round(mood.romance / totalWeights),
-      wonder: Math.round(mood.wonder / totalWeights),
-      nostalgia: Math.round(mood.nostalgia / totalWeights),
-      darkness: Math.round(mood.darkness / totalWeights),
-      inspiration: Math.round(mood.inspiration / totalWeights)
-    };
+    return finalMood;
   }
-
   /**
    * Update or create user stats with current mood
    */
@@ -215,6 +345,7 @@ export class MoodService {
 
   /**
    * Get user mood (from cache or calculate)
+   * Cache resets at midnight (user's local time, assumed GMT+3)
    */
   static async getUserMood(userId: string, forceRecalculate: boolean = false): Promise<MoodVector> {
     if (forceRecalculate) {
@@ -224,18 +355,46 @@ export class MoodService {
     const userStats = await UserStats.findOne({ userId }).lean();
 
     if (userStats && userStats.currentMood) {
-      // Check if data is stale (older than 1 day)
-      const lastUpdated = new Date(userStats.lastUpdated);
-      const now = new Date();
-      const daysSinceUpdate = (now.getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24);
+      // Check if midnight has passed since last update (GMT+3)
+      const GMT_OFFSET_MS = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
 
-      if (daysSinceUpdate < 1) {
+      const now = new Date();
+      const lastUpdated = new Date(userStats.lastUpdated);
+
+      // Get the current day's midnight in user's local time (GMT+3)
+      const nowLocal = new Date(now.getTime() + GMT_OFFSET_MS);
+      const todayMidnightLocal = new Date(nowLocal);
+      todayMidnightLocal.setHours(0, 0, 0, 0);
+      const todayMidnightUTC = new Date(todayMidnightLocal.getTime() - GMT_OFFSET_MS);
+
+      // If last update was before today's midnight, recalculate
+      if (lastUpdated >= todayMidnightUTC) {
         return userStats.currentMood;
       }
     }
 
-    // Recalculate if stale or missing
+    // Recalculate if stale (midnight passed) or missing
     return this.updateUserMood(userId);
+  }
+
+  /**
+   * Directly set a user's mood profile (used by RL feedback system)
+   * This bypasses the normal calculation and directly updates the stored mood
+   */
+  static async setUserMood(userId: string, mood: MoodVector): Promise<void> {
+    await UserStats.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          currentMood: mood,
+          lastUpdated: new Date()
+        }
+      },
+      { upsert: true }
+    );
+
+    // Save mood snapshot for timeline
+    await this.saveMoodSnapshot(userId, mood, undefined, 'AI Feedback Adjustment');
   }
 
   /**
@@ -292,11 +451,49 @@ export class MoodService {
       .sort({ timestamp: 1 })
       .lean();
 
-    return snapshots.map(snapshot => ({
-      date: snapshot.timestamp.toISOString().split('T')[0],
-      mood: snapshot.mood,
-      triggerMediaTitle: snapshot.triggerMediaTitle
-    }));
+    const groupedData = new Map<string, { moodSum: MoodVector; count: number; titles: string[] }>();
+    const moodKeys: (keyof MoodVector)[] = [
+      'adrenaline', 'melancholy', 'joy', 'tension', 'intellect',
+      'romance', 'wonder', 'nostalgia', 'darkness', 'inspiration'
+    ];
+
+    for (const snap of snapshots) {
+      const dateStr = snap.timestamp.toISOString().split('T')[0];
+
+      if (!groupedData.has(dateStr)) {
+        groupedData.set(dateStr, {
+          moodSum: { ...snap.mood },
+          count: 1,
+          titles: snap.triggerMediaTitle ? [snap.triggerMediaTitle] : []
+        });
+      } else {
+        const entry = groupedData.get(dateStr)!;
+        // Sum all mood dimensions
+        for (const key of moodKeys) {
+          entry.moodSum[key] = (entry.moodSum[key] || 0) + (snap.mood[key] || 0);
+        }
+        entry.count++;
+        // maintain unique titles list
+        if (snap.triggerMediaTitle && !entry.titles.includes(snap.triggerMediaTitle)) {
+          entry.titles.push(snap.triggerMediaTitle);
+        }
+      }
+    }
+
+    return Array.from(groupedData.entries())
+      .map(([date, data]) => {
+        const averagedMood: any = {};
+        for (const key of moodKeys) {
+          averagedMood[key] = Math.round(data.moodSum[key] / data.count);
+        }
+
+        return {
+          date,
+          mood: averagedMood as MoodVector,
+          triggerMediaTitle: data.titles.join(', ')
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   /**
@@ -375,5 +572,7 @@ export class MoodService {
       uniqueStrengths
     };
   }
+
+
 }
 

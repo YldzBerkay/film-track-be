@@ -43,6 +43,11 @@ export interface IUser extends Document {
     date: Date | null;
     watched: boolean;
   };
+  recommendationQuota: {
+    remaining: number;
+    lastResetDate: Date;
+  };
+  blacklistedMovies: number[]; // Array of TMDB IDs
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -185,7 +190,20 @@ const userSchema = new Schema<IUser>(
         type: Boolean,
         default: false
       }
-    }
+    },
+    recommendationQuota: {
+      remaining: {
+        type: Number,
+        default: 3
+      },
+      lastResetDate: {
+        type: Date,
+        default: Date.now
+      }
+    },
+    blacklistedMovies: [{
+      type: Number
+    }]
   },
   {
     timestamps: true

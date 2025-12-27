@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { WatchlistService } from '../services/watchlist.service';
+import { MovieService } from '../services/movie.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 export class WatchlistController {
@@ -10,7 +11,16 @@ export class WatchlistController {
     static async getWatchlists(req: AuthRequest, res: Response): Promise<void> {
         try {
             const userId = req.user!.id;
-            const watchlists = await WatchlistService.getUserWatchlists(userId);
+            const watchlistsDocs = await WatchlistService.getUserWatchlists(userId);
+            const lang = req.query.lang as string;
+
+            const watchlists = await Promise.all(watchlistsDocs.map(async (doc) => {
+                const list = (doc as any).toObject ? (doc as any).toObject() : doc;
+                if (lang) {
+                    list.items = await MovieService.hydrateItems(list.items, lang) as any;
+                }
+                return list;
+            }));
 
             res.json({
                 success: true,
@@ -34,14 +44,26 @@ export class WatchlistController {
             const userId = req.user!.id;
             const { id } = req.params;
 
-            const watchlist = await WatchlistService.getWatchlist(id, userId);
+            const watchlistDoc = await WatchlistService.getWatchlist(id, userId);
 
-            if (!watchlist) {
+            if (!watchlistDoc) {
                 res.status(404).json({
                     success: false,
                     message: 'Watchlist not found'
                 });
                 return;
+            }
+
+            const watchlist = (watchlistDoc as any).toObject ? (watchlistDoc as any).toObject() : watchlistDoc;
+            const lang = req.query.lang as string;
+            const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+
+            if (limit && limit > 0 && watchlist.items) {
+                watchlist.items = watchlist.items.slice(0, limit);
+            }
+
+            if (lang) {
+                watchlist.items = await MovieService.hydrateItems(watchlist.items, lang) as any;
             }
 
             res.json({
@@ -203,7 +225,18 @@ export class WatchlistController {
     static async getDefault(req: AuthRequest, res: Response): Promise<void> {
         try {
             const userId = req.user!.id;
-            const watchlist = await WatchlistService.ensureDefaultWatchlist(userId);
+            const watchlistDoc = await WatchlistService.ensureDefaultWatchlist(userId);
+            const watchlist = (watchlistDoc as any).toObject ? (watchlistDoc as any).toObject() : watchlistDoc;
+            const lang = req.query.lang as string;
+            const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+
+            if (limit && limit > 0 && watchlist.items) {
+                watchlist.items = watchlist.items.slice(0, limit);
+            }
+
+            if (lang) {
+                watchlist.items = await MovieService.hydrateItems(watchlist.items, lang) as any;
+            }
 
             res.json({
                 success: true,

@@ -40,6 +40,7 @@ export interface TMDBSearchResponse<T> {
 }
 
 export interface TMDBMovieDetails extends TMDBMovie {
+  genres: Array<{ id: number; name: string }>;
   credits?: {
     cast: Array<{
       id: number;
@@ -68,6 +69,7 @@ export interface TMDBMovieDetails extends TMDBMovie {
 }
 
 export interface TMDBTvShowDetails extends TMDBTvShow {
+  genres: Array<{ id: number; name: string }>;
   number_of_seasons: number;
   number_of_episodes: number;
   episode_run_time: number[];
@@ -204,11 +206,13 @@ export class TMDBService {
   }
 
   static async getMovieDetails(tmdbId: string, lang?: string): Promise<TMDBMovieDetails> {
+    const langParams = this.getLanguageParams(lang);
+    console.log(`[TMDB] Fetching details for ID ${tmdbId} in language: ${langParams.language}`);
     try {
       const response = await this.client.get(`/movie/${tmdbId}`, {
         params: {
           append_to_response: 'credits,videos,similar',
-          ...this.getLanguageParams(lang)
+          ...langParams
         }
       });
       return response.data;

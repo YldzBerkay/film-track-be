@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { WatchedListService } from '../services/watched-list.service';
+import { MovieService } from '../services/movie.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 export class WatchedListController {
@@ -10,7 +11,18 @@ export class WatchedListController {
     static async getWatchedList(req: AuthRequest, res: Response): Promise<void> {
         try {
             const userId = req.user!.id;
-            const watchedList = await WatchedListService.ensureDefaultWatchedList(userId);
+            const watchedListDoc = await WatchedListService.ensureDefaultWatchedList(userId);
+            const watchedList = (watchedListDoc as any).toObject ? (watchedListDoc as any).toObject() : watchedListDoc;
+            const lang = req.query.lang as string;
+            const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+
+            if (limit && limit > 0 && watchedList.items) {
+                watchedList.items = watchedList.items.slice(0, limit);
+            }
+
+            if (lang) {
+                watchedList.items = await MovieService.hydrateItems(watchedList.items, lang) as any;
+            }
 
             res.json({
                 success: true,
