@@ -133,8 +133,8 @@ export class WatchedListService {
         rating: number
     ): Promise<IWatchedList | null> {
         // Validate rating
-        if (rating < 0.5 || rating > 5 || rating % 0.5 !== 0) {
-            throw new Error('Rating must be between 0.5 and 5 in 0.5 increments');
+        if (rating < 1 || rating > 10 || !Number.isInteger(rating)) {
+            throw new Error('Rating must be an integer between 1 and 10');
         }
 
         return WatchedList.findOneAndUpdate(
@@ -312,5 +312,49 @@ export class WatchedListService {
         }
 
         return { success: true, watchedList: updated };
+    }
+    /**
+     * Get public aggregated stats for an item
+     */
+    static async getItemPublicStats(tmdbId: number, mediaType: 'movie' | 'tv'): Promise<{ count: number; averageRating: number }> {
+        const result = await WatchedList.aggregate([
+            // Match lists that have the item (perf optimization)
+            {
+                $match: {
+                    'items.tmdbId': tmdbId,
+                    'items.mediaType': mediaType
+                }
+            },
+            // Unwind items to process individually
+            { $unwind: '$items' },
+            // Match the specific item
+            {
+                $match: {
+                    'items.tmdbId': tmdbId,
+                    'items.mediaType': mediaType,
+                    'items.rating': { $exists: true, $ne: null }
+                }
+            },
+            // Group and calculate stats
+            {
+                $group: {
+                    _id: null,
+                    count: { $sum: 1 },
+                    averageRating: { $avg: '$items.rating' }
+                }
+            }
+        ]);
+
+        if (result.length === 0) {
+            return { count: 0, averageRating: 0 };
+        }
+
+        // Round average rating to 1 decimal place
+        const avg = Math.round(result[0].averageRating * 10) / 10;
+
+        return {
+            count: result[0].count,
+            averageRating: avg
+        };
     }
 }

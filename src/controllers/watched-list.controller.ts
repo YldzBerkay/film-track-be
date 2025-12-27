@@ -50,10 +50,10 @@ export class WatchedListController {
                 return;
             }
 
-            if (rating !== undefined && (rating < 0.5 || rating > 5 || rating % 0.5 !== 0)) {
+            if (rating !== undefined && (rating < 1 || rating > 10 || !Number.isInteger(rating))) {
                 res.status(400).json({
                     success: false,
-                    message: 'Rating must be between 0.5 and 5 in 0.5 increments'
+                    message: 'Rating must be an integer between 1 and 10'
                 });
                 return;
             }
@@ -99,10 +99,10 @@ export class WatchedListController {
                 return;
             }
 
-            if (rating === undefined || rating < 0.5 || rating > 5 || rating % 0.5 !== 0) {
+            if (rating === undefined || rating < 1 || rating > 10 || !Number.isInteger(rating)) {
                 res.status(400).json({
                     success: false,
-                    message: 'Rating must be between 0.5 and 5 in 0.5 increments'
+                    message: 'Rating must be an integer between 1 and 10'
                 });
                 return;
             }
@@ -307,6 +307,36 @@ export class WatchedListController {
             res.status(500).json({
                 success: false,
                 message: 'Failed to reorder items'
+            });
+        }
+    }
+    /**
+     * GET /api/watched/public/stats/:mediaType/:tmdbId
+     * Get public aggregated rating stats
+     */
+    static async getItemPublicStats(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const { mediaType, tmdbId } = req.params;
+
+            if (!mediaType || !['movie', 'tv'].includes(mediaType)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'mediaType must be "movie" or "tv"'
+                });
+                return;
+            }
+
+            const stats = await WatchedListService.getItemPublicStats(parseInt(tmdbId), mediaType as 'movie' | 'tv');
+
+            res.json({
+                success: true,
+                data: stats
+            });
+        } catch (error) {
+            console.error('Get item public stats error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to get item statistics'
             });
         }
     }

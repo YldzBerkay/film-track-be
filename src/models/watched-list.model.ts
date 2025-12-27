@@ -45,14 +45,14 @@ const watchedItemSchema = new Schema<IWatchedItem>(
         },
         rating: {
             type: Number,
-            min: 0.5,
-            max: 5,
+            min: 1,
+            max: 10,
             validate: {
                 validator: function (v: number) {
-                    // Allow 0.5 increments: 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5
-                    return v === undefined || v === null || (v >= 0.5 && v <= 5 && v % 0.5 === 0);
+                    // Allow integers 1-10
+                    return v === undefined || v === null || (v >= 1 && v <= 10 && Number.isInteger(v));
                 },
-                message: 'Rating must be between 0.5 and 5 in 0.5 increments'
+                message: 'Rating must be an integer between 1 and 10'
             }
         },
         watchedAt: {

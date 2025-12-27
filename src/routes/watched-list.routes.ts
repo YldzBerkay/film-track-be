@@ -4,6 +4,9 @@ import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
+// Public route for item stats
+router.get('/public/stats/:mediaType/:tmdbId', WatchedListController.getItemPublicStats);
+
 // All routes require authentication
 router.use(authMiddleware);
 
