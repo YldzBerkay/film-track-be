@@ -9,6 +9,8 @@ interface AddItemData {
     title: string;
     posterPath?: string;
     runtime: number;
+    numberOfEpisodes?: number;
+    numberOfSeasons?: number;
     rating?: number;
     watchedAt?: Date;
 }
@@ -89,6 +91,8 @@ export class WatchedListService {
                 {
                     $set: {
                         'items.$.rating': item.rating,
+                        'items.$.numberOfEpisodes': item.numberOfEpisodes,
+                        'items.$.numberOfSeasons': item.numberOfSeasons,
                         'items.$.watchedAt': item.watchedAt || new Date()
                     }
                 },
@@ -110,6 +114,8 @@ export class WatchedListService {
                         title: item.title,
                         posterPath: item.posterPath,
                         runtime: item.runtime,
+                        numberOfEpisodes: item.numberOfEpisodes,
+                        numberOfSeasons: item.numberOfSeasons,
                         rating: item.rating,
                         watchedAt: item.watchedAt || new Date(),
                         addedAt: new Date()

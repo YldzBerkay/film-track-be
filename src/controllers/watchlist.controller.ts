@@ -65,7 +65,7 @@ export class WatchlistController {
         try {
             const userId = req.user!.id;
             const { id } = req.params;
-            const { tmdbId, mediaType, title, posterPath } = req.body;
+            const { tmdbId, mediaType, title, posterPath, numberOfEpisodes, numberOfSeasons } = req.body;
 
             if (!tmdbId || !mediaType || !title) {
                 res.status(400).json({
@@ -87,7 +87,9 @@ export class WatchlistController {
                 tmdbId,
                 mediaType,
                 title,
-                posterPath
+                posterPath,
+                numberOfEpisodes,
+                numberOfSeasons
             });
 
             if (!watchlist) {

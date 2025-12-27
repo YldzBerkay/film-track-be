@@ -32,7 +32,7 @@ export class WatchedListController {
     static async addItem(req: AuthRequest, res: Response): Promise<void> {
         try {
             const userId = req.user!.id;
-            const { tmdbId, mediaType, title, posterPath, runtime, rating, watchedAt } = req.body;
+            const { tmdbId, mediaType, title, posterPath, runtime, rating, watchedAt, numberOfEpisodes, numberOfSeasons } = req.body;
 
             if (!tmdbId || !mediaType || !title || runtime === undefined) {
                 res.status(400).json({
@@ -65,6 +65,8 @@ export class WatchedListController {
                 posterPath,
                 runtime,
                 rating,
+                numberOfEpisodes,
+                numberOfSeasons,
                 watchedAt: watchedAt ? new Date(watchedAt) : undefined
             });
 

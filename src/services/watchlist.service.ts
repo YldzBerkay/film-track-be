@@ -8,6 +8,8 @@ interface AddItemData {
     mediaType: 'movie' | 'tv';
     title: string;
     posterPath?: string;
+    numberOfEpisodes?: number;
+    numberOfSeasons?: number;
 }
 
 // Plain object type for lean() results
@@ -160,6 +162,8 @@ export class WatchlistService {
                         mediaType: item.mediaType,
                         title: item.title,
                         posterPath: item.posterPath,
+                        numberOfEpisodes: item.numberOfEpisodes,
+                        numberOfSeasons: item.numberOfSeasons,
                         addedAt: new Date()
                     }
                 }

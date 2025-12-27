@@ -5,6 +5,8 @@ export interface IWatchlistItem {
     mediaType: 'movie' | 'tv';
     title: string;
     posterPath?: string;
+    numberOfEpisodes?: number;
+    numberOfSeasons?: number;
     addedAt: Date;
 }
 
@@ -35,6 +37,8 @@ const watchlistItemSchema = new Schema<IWatchlistItem>(
             required: true
         },
         posterPath: String,
+        numberOfEpisodes: Number,
+        numberOfSeasons: Number,
         addedAt: {
             type: Date,
             default: Date.now
