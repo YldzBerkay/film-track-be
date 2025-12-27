@@ -15,6 +15,7 @@ export interface IUser extends Document {
   stats: {
     moviesWatched: number;
     episodesWatched: number;
+    totalRuntime: number;
   };
   followersCount: number;
   followingCount: number;
@@ -101,6 +102,10 @@ const userSchema = new Schema<IUser>(
         default: 0
       },
       episodesWatched: {
+        type: Number,
+        default: 0
+      },
+      totalRuntime: {
         type: Number,
         default: 0
       }

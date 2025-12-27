@@ -11,6 +11,7 @@ interface UserProfileResponse {
     stats: {
       moviesWatched: number;
       episodesWatched: number;
+      totalRuntime: number;
     };
     followersCount: number;
     followingCount: number;
@@ -43,6 +44,20 @@ export class UserService {
 
     if (!user) {
       throw new Error('User not found');
+    }
+
+    // Get stats from WatchedListService
+    try {
+      const { WatchedListService } = await import('./watched-list.service');
+      const stats = await WatchedListService.getStats(user._id.toString());
+
+      user.stats.moviesWatched = stats.totalMovies;
+      user.stats.episodesWatched = stats.totalTvShows; // Mapping TV shows count to episodesWatched for now as per schema
+      user.stats.totalRuntime = stats.totalRuntime;
+      await user.save();
+    } catch (error) {
+      console.error('Failed to update user stats:', error);
+      // Continue without failing the request, using existing stats
     }
 
     // Get recent activities (last 10)
@@ -98,6 +113,19 @@ export class UserService {
 
     if (!user) {
       throw new Error('User not found');
+    }
+
+    // Get stats from WatchedListService
+    try {
+      const { WatchedListService } = await import('./watched-list.service');
+      const stats = await WatchedListService.getStats(user._id.toString());
+
+      user.stats.moviesWatched = stats.totalMovies;
+      user.stats.episodesWatched = stats.totalTvShows;
+      user.stats.totalRuntime = stats.totalRuntime;
+      await user.save();
+    } catch (error) {
+      console.error('Failed to update user stats:', error);
     }
 
     const recentActivities = await Activity.find({ userId: user._id })

@@ -296,12 +296,14 @@ export class WatchedListService {
             .filter(id => itemMap.has(id))
             .map(id => itemMap.get(id)!);
 
-        // Any items not in the ordered list go at the end
-        const remainingItems = watchedList.items.filter((item: IWatchedItem) => !orderedTmdbIds.includes(item.tmdbId));
-
+        // Update with ONLY the reordered items (effectively removing any missing ones)
         const updated = await WatchedList.findOneAndUpdate(
             { _id: watchedList._id },
-            { items: [...reorderedItems, ...remainingItems] },
+            {
+                items: reorderedItems,
+                // Recalculate total runtime since items might have been removed
+                totalRuntime: reorderedItems.reduce((sum, item) => sum + (item.runtime || 0), 0)
+            },
             { new: true }
         );
 
