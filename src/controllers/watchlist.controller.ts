@@ -370,17 +370,17 @@ export class WatchlistController {
         try {
             const userId = req.user!.id;
             const { id } = req.params;
-            const { orderedTmdbIds } = req.body;
+            const { orderedTmdbIds, name, icon } = req.body;
 
-            if (!orderedTmdbIds || !Array.isArray(orderedTmdbIds)) {
+            if (!orderedTmdbIds && !name && !icon) {
                 res.status(400).json({
                     success: false,
-                    message: 'orderedTmdbIds is required and must be an array'
+                    message: 'At least one of orderedTmdbIds, name, or icon is required'
                 });
                 return;
             }
 
-            const result = await WatchlistService.reorderItems(id, userId, orderedTmdbIds);
+            const result = await WatchlistService.reorderItems(id, userId, orderedTmdbIds, name, icon);
 
             if (!result.success) {
                 res.status(404).json({

@@ -247,7 +247,13 @@ export class WatchlistService {
     /**
      * Reorder items in a watchlist
      */
-    static async reorderItems(watchlistId: string, userId: string, orderedTmdbIds: number[]): Promise<{ success: boolean; watchlist?: IWatchlist; message?: string }> {
+    static async reorderItems(
+        watchlistId: string,
+        userId: string,
+        orderedTmdbIds: number[],
+        name?: string,
+        icon?: string
+    ): Promise<{ success: boolean; watchlist?: IWatchlist; message?: string }> {
         const watchlist = await Watchlist.findOne({
             _id: new mongoose.Types.ObjectId(watchlistId),
             userId: new mongoose.Types.ObjectId(userId)
@@ -257,20 +263,32 @@ export class WatchlistService {
             return { success: false, message: 'Watchlist not found' };
         }
 
-        // Create a map of tmdbId to item
-        const itemMap = new Map(watchlist.items.map(item => [item.tmdbId, item]));
+        const updateData: any = {};
 
-        // Reorder items based on the provided order
-        const reorderedItems = orderedTmdbIds
-            .filter(id => itemMap.has(id))
-            .map(id => itemMap.get(id)!);
+        // Handle reordering if orderedTmdbIds is provided
+        if (orderedTmdbIds && Array.isArray(orderedTmdbIds)) {
+            const itemMap = new Map(watchlist.items.map(item => [item.tmdbId, item]));
+            const reorderedItems = orderedTmdbIds
+                .filter(id => itemMap.has(id))
+                .map(id => itemMap.get(id)!);
 
-        // Any items not in the ordered list go at the end (shouldn't happen, but safety)
-        const remainingItems = watchlist.items.filter(item => !orderedTmdbIds.includes(item.tmdbId));
+            const remainingItems = watchlist.items.filter(item => !orderedTmdbIds.includes(item.tmdbId));
+            updateData.items = [...reorderedItems, ...remainingItems];
+        }
+
+        // Handle name and icon updates if not a default watchlist
+        if (!watchlist.isDefault) {
+            if (name && typeof name === 'string' && name.trim().length > 0) {
+                updateData.name = name.trim();
+            }
+            if (icon && typeof icon === 'string' && icon.trim().length > 0) {
+                updateData.icon = icon.trim();
+            }
+        }
 
         const updated = await Watchlist.findOneAndUpdate(
             { _id: watchlist._id },
-            { items: [...reorderedItems, ...remainingItems] },
+            updateData,
             { new: true }
         );
 
