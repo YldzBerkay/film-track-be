@@ -88,6 +88,37 @@ export class AuthController {
     }
   }
 
+
+
+  static async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        const error: ApiError = new Error('Validation failed');
+        error.statusCode = 400;
+        error.errors = errors.array();
+        throw error;
+      }
+
+      // Allow userId to be extracted from req.user (added by authenticate middleware) using 'as any' casting if type definitions are missing
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+
+      const { oldPassword, newPassword } = req.body;
+
+      await AuthService.changePassword(userId, oldPassword, newPassword);
+
+      res.status(200).json({
+        success: true,
+        message: 'Password changed successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async logout(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { refreshToken } = req.body;

@@ -39,3 +39,21 @@ export const refreshTokenValidation: ValidationChain[] = [
         .notEmpty()
         .withMessage('Refresh token is required')
 ];
+
+export const changePasswordValidation: ValidationChain[] = [
+    body('oldPassword')
+        .notEmpty()
+        .withMessage('Current password is required'),
+
+    body('newPassword')
+        .isLength({ min: 6 })
+        .withMessage('New password must be at least 6 characters')
+        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+        .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+        .custom((value, { req }) => {
+            if (value === req.body.oldPassword) {
+                throw new Error('New password cannot be the same as the old password');
+            }
+            return true;
+        })
+];

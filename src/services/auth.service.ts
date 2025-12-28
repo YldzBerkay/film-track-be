@@ -109,6 +109,21 @@ export class AuthService {
     };
   }
 
+  static async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<void> {
+    const user = await User.findById(userId).select('+password');
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const isPasswordValid = await user.comparePassword(oldPassword);
+    if (!isPasswordValid) {
+      throw new Error('Invalid current password');
+    }
+
+    user.password = newPassword;
+    await user.save();
+  }
+
   static async refreshAccessToken(refreshTokenString: string): Promise<AuthResponse> {
     // Find refresh token
     const refreshTokenDoc = await RefreshToken.findOne({
