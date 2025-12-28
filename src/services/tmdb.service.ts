@@ -117,15 +117,19 @@ export class TMDBService {
     return { language: getTMDBLanguage(lang) };
   }
 
-  static async searchMovies(query: string, page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBMovie>> {
+  static async searchMovies(query: string, page: number = 1, lang?: string, year?: number): Promise<TMDBSearchResponse<TMDBMovie>> {
     try {
-      const response = await this.client.get('/search/movie', {
-        params: {
-          query,
-          page,
-          ...this.getLanguageParams(lang)
-        }
-      });
+      const params: any = {
+        query,
+        page,
+        ...this.getLanguageParams(lang)
+      };
+
+      if (year) {
+        params.primary_release_year = year;
+      }
+
+      const response = await this.client.get('/search/movie', { params });
       return response.data;
     } catch (error) {
       console.error('TMDb Search Error:', error);

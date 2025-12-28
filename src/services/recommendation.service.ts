@@ -747,9 +747,26 @@ Use this feedback to refine the next suggestions.
             // Ideally we should search TMDB first to get ID, then check DB by ID?
             // Current flow: DB Title Match -> specific to existing movies.
 
+            // Parse title for year if present "Title (YYYY)"
+            const match = title.match(/^(.+?)\s*\((\d{4})\)$/);
+            let searchTitle = title;
+            let searchYear: number | undefined = undefined;
+
+            if (match) {
+                searchTitle = match[1].trim();
+                searchYear = parseInt(match[2]);
+            }
+
+            // 1. Check if movie exists in our database
+            // Note: DB search by exact string regex might fail if we have "Title" but searching "Title (Year)"
+            // Better to search DB by the parsed title if we have one.
+            const dbSearchTitle = searchTitle;
+
             const existingMovie = await Movie.findOne({
-                title: { $regex: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-                mediaType: 'movie'
+                title: { $regex: new RegExp(`^${dbSearchTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+                mediaType: 'movie',
+                // Optional: Check year if existingMovie has releaseDate? 
+                // Getting intricate, but basic title match is usually enough for local DB check.
             }).lean();
 
             if (existingMovie && existingMovie.moodVector) {
@@ -831,12 +848,13 @@ Use this feedback to refine the next suggestions.
                 };
             }
 
-            // 2. Search TMDB for the movie (using the language)
-            const searchResult = await TMDBService.searchMovies(title, 1, lang);
+            // 2. Search TMDB for the movie (using the language and optional year)
+            // Use searchTitle and searchYear
+            const searchResult = await TMDBService.searchMovies(searchTitle, 1, lang, searchYear);
             if (!searchResult.results || searchResult.results.length === 0) {
                 // Retry in English if specific lang failed
                 if (lang !== 'en') {
-                    const fallbackSearch = await TMDBService.searchMovies(title, 1, 'en');
+                    const fallbackSearch = await TMDBService.searchMovies(searchTitle, 1, 'en', searchYear);
                     if (!fallbackSearch.results || fallbackSearch.results.length === 0) {
                         console.warn(`[AI Curation] Movie not found on TMDB: ${title}`);
                         return null;
@@ -855,7 +873,7 @@ Use this feedback to refine the next suggestions.
             // Best Practice: Search in English to match the AI Title properly.
             // THEN fetch details in Target Lang.
 
-            const enSearchResult = await TMDBService.searchMovies(title, 1, 'en');
+            const enSearchResult = await TMDBService.searchMovies(searchTitle, 1, 'en', searchYear);
             if (!enSearchResult.results || enSearchResult.results.length === 0) {
                 return null;
             }
@@ -1078,7 +1096,8 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
             // 5. Ask AI for movie suggestions - THE ONLY SOURCE
             // Updated Prompt to include Genre Constraints AND Recent Feedback
             const feedbackContext = await this.getRecentFeedbackContext(userId, 14);
-            const prompt = `${aiInstruction} Focus primarily on these genres: ${genreList.join(', ')}. Do NOT suggest TV Series.`;
+            const formattingRule = "IMPORTANT FORMATTING RULE: Return the movie titles strictly in this format: 'Original English Title (YYYY)'. Example: 'The Matrix (1999)', 'Interstellar (2014)'. Do not include any other text.";
+            const prompt = `${aiInstruction} Focus primarily on these genres: ${genreList.join(', ')}. Do NOT suggest TV Series. ${formattingRule}`;
 
             // Build full prompt with mood description, prompt, and feedback context
             const fullPrompt = feedbackContext
