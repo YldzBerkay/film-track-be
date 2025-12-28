@@ -5,6 +5,7 @@ const csvParser = require('csv-parser');
 import { AuthRequest } from '../middleware/auth.middleware';
 import { TMDBService, TMDBMovie, TMDBTvShow, TMDBMovieDetails, TMDBTvShowDetails } from '../services/tmdb.service';
 import { WatchedListService } from '../services/watched-list.service';
+import { AIService } from '../services/ai.service';
 import { WatchedList } from '../models/watched-list.model';
 import { Activity } from '../models/activity.model';
 import mongoose from 'mongoose';
@@ -108,6 +109,14 @@ export class ImportController {
             let skippedCount = 0;
             let movieCount = 0;
             let tvCount = 0;
+
+            // Collect items for background moodVector processing
+            const itemsForMoodProcessing: Array<{
+                tmdbId: number;
+                mediaType: 'movie' | 'tv';
+                title: string;
+                overview?: string;
+            }> = [];
 
             // Process rows with concurrency limit of 5
             const processRow = async (row: CsvRow): Promise<void> => {
@@ -231,6 +240,14 @@ export class ImportController {
                         tvCount++;
                     }
 
+                    // Collect for background mood processing
+                    itemsForMoodProcessing.push({
+                        tmdbId: result.id,
+                        mediaType,
+                        title,
+                        overview: (details as any).overview
+                    });
+
                     results.push({ title, success: true });
                     importedCount++;
                 } catch (error) {
@@ -264,15 +281,25 @@ export class ImportController {
                 });
             }
 
+            // Calculate estimated processing time (1.5 sec per item for AI analysis)
+            const estimatedProcessingSeconds = Math.ceil(itemsForMoodProcessing.length * 1.5);
+
             res.json({
                 success: true,
                 data: {
                     importedCount,
                     skippedCount,
                     failedCount: failedItems.length,
-                    failedItems
+                    failedItems,
+                    estimatedProcessingSeconds: itemsForMoodProcessing.length > 0 ? estimatedProcessingSeconds : 0
                 }
             });
+
+            // Fire-and-forget: Process imported items for moodVector analysis in background
+            if (itemsForMoodProcessing.length > 0) {
+                AIService.processImportedMoviesInBackground(itemsForMoodProcessing)
+                    .catch(err => console.error('[Import] Background mood processing error:', err));
+            }
         } catch (error) {
             console.error('Import watch history error:', error);
             res.status(500).json({

@@ -271,5 +271,61 @@ Return JSON: {"movies": ["Film 1", "Film 2", ...]}`;
       return []; // Return empty array on failure, don't throw
     }
   }
+
+  /**
+   * Process imported movies in background to generate moodVectors
+   * Called asynchronously after bulk import - fire and forget
+   * Rate limited to avoid overwhelming OpenAI API
+   */
+  static async processImportedMoviesInBackground(
+    items: Array<{
+      tmdbId: number;
+      mediaType: 'movie' | 'tv';
+      title: string;
+      overview?: string;
+    }>
+  ): Promise<void> {
+    console.log(`[AI Background] Starting to process ${items.length} items for moodVector analysis`);
+
+    const DELAY_BETWEEN_ITEMS_MS = 1000; // 1 second between each AI call
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const item of items) {
+      try {
+        // Check if already has moodVector
+        const existing = await Movie.findOne({
+          tmdbId: item.tmdbId,
+          mediaType: item.mediaType,
+          moodVector: { $exists: true }
+        }).lean();
+
+        if (existing) {
+          console.log(`[AI Background] Skipping ${item.title} - already has moodVector`);
+          continue;
+        }
+
+        // Analyze and save
+        console.log(`[AI Background] Analyzing: ${item.title}`);
+        await this.getOrAnalyzeMovie(
+          item.tmdbId,
+          item.mediaType,
+          item.title,
+          item.overview
+        );
+
+        successCount++;
+
+        // Rate limiting delay
+        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_ITEMS_MS));
+      } catch (error) {
+        console.error(`[AI Background] Failed to process ${item.title}:`, error);
+        errorCount++;
+        // Continue with next item even if one fails
+      }
+    }
+
+    console.log(`[AI Background] Completed. Success: ${successCount}, Errors: ${errorCount}`);
+  }
 }
 

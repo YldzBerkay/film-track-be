@@ -173,9 +173,10 @@ export class TMDBService {
     details: TMDBMovieDetails | TMDBTvShowDetails | null;
   }> {
     const sanitizedQuery = this.sanitizeQuery(query);
+    console.log(`[TMDB searchContent] Query: "${query}" → Sanitized: "${sanitizedQuery}", Year: ${year}`);
 
     try {
-      // Try movie search first
+      // Try movie search first (with year if provided)
       const movieParams: any = {
         query: sanitizedQuery,
         page: 1,
@@ -185,11 +186,20 @@ export class TMDBService {
         movieParams.primary_release_year = year;
       }
 
-      const movieResponse = await this.client.get('/search/movie', { params: movieParams });
-      const movieResults: TMDBSearchResponse<TMDBMovie> = movieResponse.data;
+      let movieResponse = await this.client.get('/search/movie', { params: movieParams });
+      let movieResults: TMDBSearchResponse<TMDBMovie> = movieResponse.data;
+
+      // If no results with year, retry WITHOUT year
+      if ((!movieResults.results || movieResults.results.length === 0) && year) {
+        console.log(`[TMDB searchContent] No results with year ${year}, retrying without year...`);
+        delete movieParams.primary_release_year;
+        movieResponse = await this.client.get('/search/movie', { params: movieParams });
+        movieResults = movieResponse.data;
+      }
 
       if (movieResults.results && movieResults.results.length > 0) {
         const movie = movieResults.results[0];
+        console.log(`[TMDB searchContent] Found movie: "${movie.title}" (ID: ${movie.id})`);
         const details = await this.getMovieDetails(movie.id.toString(), lang);
         return { result: movie, mediaType: 'movie', details };
       }
@@ -204,11 +214,20 @@ export class TMDBService {
         tvParams.first_air_date_year = year;
       }
 
-      const tvResponse = await this.client.get('/search/tv', { params: tvParams });
-      const tvResults: TMDBSearchResponse<TMDBTvShow> = tvResponse.data;
+      let tvResponse = await this.client.get('/search/tv', { params: tvParams });
+      let tvResults: TMDBSearchResponse<TMDBTvShow> = tvResponse.data;
+
+      // If no results with year, retry WITHOUT year
+      if ((!tvResults.results || tvResults.results.length === 0) && year) {
+        console.log(`[TMDB searchContent] No TV results with year ${year}, retrying without year...`);
+        delete tvParams.first_air_date_year;
+        tvResponse = await this.client.get('/search/tv', { params: tvParams });
+        tvResults = tvResponse.data;
+      }
 
       if (tvResults.results && tvResults.results.length > 0) {
         const show = tvResults.results[0];
+        console.log(`[TMDB searchContent] Found TV: "${show.name}" (ID: ${show.id})`);
         const details = await this.getShowDetails(show.id.toString(), lang);
         return { result: show, mediaType: 'tv', details };
       }
