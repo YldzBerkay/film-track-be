@@ -486,7 +486,7 @@ export class RecommendationService {
                             tmdbId: movie.id,
                             title: movie.title,
                             year: new Date(movie.release_date).getFullYear(),
-                            genre: 'Movie',
+                            runtime: movie.runtime,
                             backdropUrl: TMDBService.getBackdropUrl(movie.backdrop_path),
                             overview: movie.overview,
                             watched: user.dailyPick?.watched || false
@@ -543,16 +543,18 @@ export class RecommendationService {
             }
             await user.save();
 
+            // Fetch full movie details to get runtime
+            const fullMovie = await TMDBService.getMovie(randomMovie.id, lang);
+
             return {
                 tmdbId: randomMovie.id,
                 title: randomMovie.title,
                 year: new Date(randomMovie.release_date).getFullYear(),
-                genre: 'Movie',
+                runtime: fullMovie.runtime || 0,
                 backdropUrl: TMDBService.getBackdropUrl(randomMovie.backdrop_path),
                 overview: randomMovie.overview,
                 watched: false
             };
-
         } catch (error) {
             console.error('Daily Pick Error:', error);
             throw new Error('Failed to get daily pick.');
