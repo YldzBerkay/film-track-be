@@ -1041,7 +1041,7 @@ Use this feedback to refine the next suggestions.
                     const genres = MOOD_GENRE_MAP[mood] || [];
                     genres.forEach(g => targetGenres.add(g));
                 });
-                aiInstruction = `The user loves '${sortedMoods.join(', ')}' movies. Suggest ${limit + 5} feature films that perfectly match this mood.`;
+                aiInstruction = `The user loves '${sortedMoods.join(', ')}' movies. Suggest ${limit + 15} feature films that perfectly match this mood.`;
                 console.log(`[AI Curation] MATCH Mode - Target Genres: ${Array.from(targetGenres).join(', ')}`);
             } else if (mode === 'shift') {
                 // SHIFT LOGIC: Map Dominant Moods -> Antidotes -> Genres
@@ -1072,7 +1072,7 @@ Use this feedback to refine the next suggestions.
                 aiInstruction = `
 CURRENT STATE: The user is feeling '${sortedMoods.join(', ')}' (typical genres: ${avoidList}).
 GOAL: They need a 'Mood Shift' / Palette Cleanser.
-TASK: Suggest ${limit + 5} feature films that evoke '${antidoteList}'.
+TASK: Suggest ${limit + 15} feature films that evoke '${antidoteList}'.
 CONSTRAINT: Do NOT suggest ${avoidList} movies. 
 Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy instead.
 `;
@@ -1093,98 +1093,135 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
             const activities = await Activity.find({ userId, type: { $in: ['movie_watched', 'rating'] } });
             activities.forEach(act => excludeIds.add(Number(act.tmdbId)));
 
-            // 5. Ask AI for movie suggestions - THE ONLY SOURCE
+            // 5. REPLENISHMENT LOOP: Ask AI for movies until we hit the limit
+            const allRankedMovies: any[] = [];
+            let attempts = 0;
+            const MAX_ATTEMPTS = 3;
+
             // Updated Prompt to include Genre Constraints AND Recent Feedback
             const feedbackContext = await this.getRecentFeedbackContext(userId, 14);
             const formattingRule = "IMPORTANT FORMATTING RULE: Return the movie titles strictly in this format: 'Original English Title (YYYY)'. Example: 'The Matrix (1999)', 'Interstellar (2014)'. Do not include any other text.";
-            const prompt = `${aiInstruction} Focus primarily on these genres: ${genreList.join(', ')}. Do NOT suggest TV Series. ${formattingRule}`;
+            let basePrompt = `${aiInstruction} Focus primarily on these genres: ${genreList.join(', ')}. Do NOT suggest TV Series. ${formattingRule}`;
 
-            // Build full prompt with mood description, prompt, and feedback context
-            const fullPrompt = feedbackContext
-                ? `${moodDescription}\n\n${prompt}\n\n${feedbackContext}`
-                : `${moodDescription}\n\n${prompt}`;
-
-            console.log(`[AI Curation] Sending ${mode.toUpperCase()} prompt with${feedbackContext ? '' : 'out'} feedback context`);
-
-            // We pass the refined prompt instead of just moodDescription if the AI service supports it, 
-            // or we append it to the moodDescription if the service just takes a string.
-            // Assuming getCuratorSuggestions uses the string as the core instruction:
-            const suggestedTitles = await AIService.getCuratorSuggestions(
-                fullPrompt,
-                limit + 5 // Request extra to account for exclusions and TV show filtering
-            );
-
-            if (suggestedTitles.length === 0) {
-                console.error('[AI Curation] No suggestions from AI - throwing error');
-                throw new Error('AI service failed to generate recommendations.');
+            if (feedbackContext) {
+                basePrompt = `${moodDescription}\n\n${basePrompt}\n\n${feedbackContext}`;
+            } else {
+                basePrompt = `${moodDescription}\n\n${basePrompt}`;
             }
 
-            console.log(`[AI Curation] AI suggested ${suggestedTitles.length} films:`, suggestedTitles);
+            while (allRankedMovies.length < limit && attempts < MAX_ATTEMPTS) {
+                attempts++;
+                const neededCount = (limit - allRankedMovies.length);
+                const requestCount = neededCount + 10; // Always request buffer
 
-            // 6. Resolve ALL AI-suggested movies in parallel (no limit)
-            const resolutionPromises = suggestedTitles.map(title =>
-                this.resolveAndAnalyzeMovie(title, excludeIds, lang || 'en')
-            );
+                console.log(`[AI Curation] Attempt ${attempts}/${MAX_ATTEMPTS}: Need ${neededCount} more, asking for ${requestCount}.`);
 
-            const resolvedMovies = (await Promise.all(resolutionPromises))
-                .filter((m): m is ResolvedMovie => m !== null);
+                let currentPrompt = basePrompt;
+                if (attempts > 1) {
+                    // In retries, explicitly forbid what we already have
+                    const currenttitles = allRankedMovies.map(m => m.title).join(', ');
+                    currentPrompt += `\n\nCONSTRAINT: Do NOT suggest these movies again: ${currenttitles}. Suggest different ones.`;
+                }
 
-            console.log(`[AI Curation] Resolved ${resolvedMovies.length} movies (${resolvedMovies.filter(m => m.isNewlyDiscovered).length} newly discovered)`);
+                try {
+                    console.log(`[AI Curation] Sending request for ${requestCount} items...`);
+                    const suggestedTitles = await AIService.getCuratorSuggestions(
+                        currentPrompt,
+                        requestCount
+                    );
 
-            // 7. Calculate target vector and similarity
-            // For 'match' mode: compare against userMood
-            // For 'shift' mode: compare against emotionally balanced target vector
-            const targetVector = this.calculateTargetVector(userMood, mode);
-
-            const rankedMovies = resolvedMovies
-                .map(movie => {
-                    let sim = this.calculateCosineSimilarity(targetVector, movie.moodVector) * 100;
-
-                    // GENRE BOOST: +5% if movie has at least one matching genre
-                    const hasMatchingGenre = movie.genres && movie.genres.some((g: string) => targetGenres.has(g));
-                    if (hasMatchingGenre) {
-                        sim += 5;
+                    if (suggestedTitles.length === 0) {
+                        console.warn('[AI Curation] No suggestions received in this attempt.');
+                        if (attempts === 1 && allRankedMovies.length === 0) {
+                            throw new Error('AI service failed to generate recommendations.');
+                        }
+                        break; // Stop if AI stops giving output
                     }
 
-                    // 3. THE SKEPTIC PENALTY (CRITICAL FIX FOR SHIFT MODE)
-                    if (mode === 'shift') {
-                        // Check similarity to the user's ORIGINAL (Problematic) Mood
-                        const similarityToOriginalMood = this.calculateCosineSimilarity(userMood, movie.moodVector);
+                    console.log(`[AI Curation] AI suggested ${suggestedTitles.length} films:`, suggestedTitles);
 
-                        // Rule A: If movie feels too much like the user's current state (>65%), kill it.
-                        // Example: User is Stressed -> Movie is Stressed. Don't recommend it even if it has Joy.
-                        if (similarityToOriginalMood > 0.65) {
-                            console.log(`[Skeptic Filter] Penalizing '${movie.title}' in Shift Mode.`);
-                            console.log(`   Reason: Too similar to original mood (${(similarityToOriginalMood * 100).toFixed(1)}%)`);
-                            sim -= 50;
-                        }
+                    // 6. Resolve ALL AI-suggested movies in parallel
+                    const resolutionPromises = suggestedTitles.map(title =>
+                        this.resolveAndAnalyzeMovie(title, excludeIds, lang || 'en')
+                    );
 
-                        // Rule B: Explicit Tension/Darkness Block
-                        // If user is Tense (>60) and Movie is Tense (>60), hard block.
-                        if (userMood.tension > 60 && movie.moodVector.tension > 60) {
-                            console.log(`[Skeptic Filter] Hard Block '${movie.title}': High Tension match in Shift Mode.`);
-                            sim -= 100;
-                        }
+                    const resolvedMovies = (await Promise.all(resolutionPromises))
+                        .filter((m): m is ResolvedMovie => m !== null);
 
-                        // Rule C: Explicit Melancholy Block
-                        if (userMood.melancholy > 60 && movie.moodVector.melancholy > 60) {
-                            console.log(`[Skeptic Filter] Hard Block '${movie.title}': High Melancholy match in Shift Mode.`);
-                            sim -= 100;
+                    console.log(`[AI Curation] Resolved ${resolvedMovies.length} movies in attempt ${attempts}`);
+
+                    // 7. Calculate target vector and similarity
+                    const targetVector = this.calculateTargetVector(userMood, mode);
+
+                    const batchRanked = resolvedMovies
+                        .map(movie => {
+                            let sim = this.calculateCosineSimilarity(targetVector, movie.moodVector) * 100;
+
+                            // GENRE BOOST: +5% if movie has at least one matching genre
+                            const hasMatchingGenre = movie.genres && movie.genres.some((g: string) => targetGenres.has(g));
+                            if (hasMatchingGenre) {
+                                sim += 5;
+                            }
+
+                            // 3. THE SKEPTIC PENALTY
+                            if (mode === 'shift') {
+                                const similarityToOriginalMood = this.calculateCosineSimilarity(userMood, movie.moodVector);
+
+                                if (similarityToOriginalMood > 0.65) {
+                                    console.log(`[Skeptic Filter] Penalizing '${movie.title}' in Shift Mode.`);
+                                    sim -= 50;
+                                }
+
+                                if (userMood.tension > 60 && movie.moodVector.tension > 60) {
+                                    console.log(`[Skeptic Filter] Hard Block '${movie.title}': High Tension match.`);
+                                    sim -= 100;
+                                }
+
+                                if (userMood.melancholy > 60 && movie.moodVector.melancholy > 60) {
+                                    console.log(`[Skeptic Filter] Hard Block '${movie.title}': High Melancholy match.`);
+                                    sim -= 100;
+                                }
+                            }
+
+                            sim = Math.min(Math.max(sim, 0), 100);
+                            sim = Number(sim.toFixed(1));
+
+                            return {
+                                ...movie,
+                                moodSimilarity: sim,
+                                moodMatchType: mode
+                            };
+                        })
+                        .filter(m => {
+                            if (m.moodSimilarity <= 40) {
+                                console.log(`[Filter] Dropped '${m.title}' (Score: ${m.moodSimilarity})`);
+                                return false;
+                            }
+                            return true;
+                        });
+
+                    console.log(`[AI Curation] Batch yielded ${batchRanked.length} valid movies.`);
+
+                    // Add to cumulative list
+                    for (const movie of batchRanked) {
+                        // Check for duplicates (just in case)
+                        if (!allRankedMovies.some(existing => existing.tmdbId === movie.tmdbId)) {
+                            allRankedMovies.push(movie);
+                            // Add to exclude list for next iteration
+                            excludeIds.add(movie.tmdbId);
                         }
                     }
 
-                    // Score Clamping: Ensure 0-100 range and format to 1 decimal place
-                    sim = Math.min(Math.max(sim, 0), 100);
-                    sim = Number(sim.toFixed(1));
+                } catch (err) {
+                    console.error(`[AI Curation] Error in attempt ${attempts}:`, err);
+                    // If first attempt fails completely, throw. Otherwise continue with what we have.
+                    if (attempts === 1 && allRankedMovies.length === 0) throw err;
+                }
+            }
 
-                    return {
-                        ...movie,
-                        moodSimilarity: sim,
-                        moodMatchType: mode // Explicitly set the requested mode
-                    };
-                })
+            // Final sort and slice
+            const rankedMovies = allRankedMovies
                 .sort((a, b) => b.moodSimilarity - a.moodSimilarity)
-                .filter(m => m.moodSimilarity > 40) // Remove heavily penalized movies
                 .slice(0, limit);
 
             // 8. Save to cache with 7-day expiry
