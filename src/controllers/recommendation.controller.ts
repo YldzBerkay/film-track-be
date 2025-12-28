@@ -141,15 +141,30 @@ export class RecommendationController {
 
             const recommendations = await RecommendationService.getMoodBasedRecommendations(userId, mode, limit, includeWatched, lang, forceRefresh);
 
+            // Check if data is empty (which might indicate a silent failure)
+            if (!recommendations || recommendations.length === 0) {
+                throw new Error('AI_NO_RESPONSE');
+            }
+
             return res.status(200).json({
                 success: true,
                 data: recommendations
             });
-        } catch (error) {
-            console.error('Error fetching mood-based recommendations:', error);
-            return res.status(500).json({
+        } catch (error: any) {
+            console.error('[Recommendation Error] getMoodBasedRecommendations:', error);
+
+            // Default error message
+            let clientMessage = 'Öneriler oluşturulurken beklenmedik bir hata oluştu.';
+
+            // Specific AI Error Message
+            if (error.message?.includes('AI') || error.message?.includes('OpenAI') || error.message === 'AI_NO_RESPONSE') {
+                clientMessage = 'Önerirken bir şeyler ters gitti. 10 dakika içerisinde düzelmezse lütfen iletişime geçin.';
+            }
+
+            return res.status(503).json({
                 success: false,
-                message: 'Failed to generate mood-based recommendations.'
+                error: 'AI_SERVICE_UNAVAILABLE',
+                message: clientMessage
             });
         }
     }
@@ -173,15 +188,30 @@ export class RecommendationController {
 
             const recommendations = await RecommendationService.getAICuratedRecommendations(userId, limit, lang, forceRefresh);
 
+            // Check if data is empty (which might indicate a silent failure)
+            if (!recommendations || recommendations.length === 0) {
+                throw new Error('AI_NO_RESPONSE');
+            }
+
             return res.status(200).json({
                 success: true,
                 data: recommendations
             });
-        } catch (error) {
-            console.error('Error fetching AI-curated recommendations:', error);
-            return res.status(500).json({
+        } catch (error: any) {
+            console.error('[Recommendation Error] getAICurated:', error);
+
+            // Default error message
+            let clientMessage = 'Öneriler oluşturulurken beklenmedik bir hata oluştu.';
+
+            // Specific AI Error Message
+            if (error.message?.includes('AI') || error.message?.includes('OpenAI') || error.message === 'AI_NO_RESPONSE') {
+                clientMessage = 'Önerirken bir şeyler ters gitti. 10 dakika içerisinde düzelmezse lütfen iletişime geçin.';
+            }
+
+            return res.status(503).json({
                 success: false,
-                message: 'Failed to generate AI-curated recommendations.'
+                error: 'AI_SERVICE_UNAVAILABLE',
+                message: clientMessage
             });
         }
     }

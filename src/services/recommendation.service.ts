@@ -1115,8 +1115,8 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
             );
 
             if (suggestedTitles.length === 0) {
-                console.warn('[AI Curation] No suggestions from AI - returning empty list (100% AI-driven)');
-                return [];
+                console.error('[AI Curation] No suggestions from AI - throwing error');
+                throw new Error('AI service failed to generate recommendations.');
             }
 
             console.log(`[AI Curation] AI suggested ${suggestedTitles.length} films:`, suggestedTitles);
