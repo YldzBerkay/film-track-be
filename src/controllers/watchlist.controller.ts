@@ -5,6 +5,32 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 export class WatchlistController {
     /**
+     * GET /api/watchlists/dashboard-summary
+     * Get aggregated summary of lists for dashboard
+     */
+    static async getDashboardSummary(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const summary = await WatchlistService.getDashboardSummary(userId);
+            const lang = req.query.lang as string;
+
+            // Optional: Hydrate first item of each list if needed for better display
+            // For now, returning as-is since models contain basic item info (posterPath)
+
+            res.json({
+                success: true,
+                data: summary
+            });
+        } catch (error) {
+            console.error('Get dashboard summary error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to get dashboard summary'
+            });
+        }
+    }
+
+    /**
      * GET /api/watchlists
      * Get all watchlists for the authenticated user
      */

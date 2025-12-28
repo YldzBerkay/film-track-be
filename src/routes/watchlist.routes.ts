@@ -10,6 +10,9 @@ router.use(authMiddleware);
 // Get user's default watchlist
 router.get('/default', WatchlistController.getDefault);
 
+// Get dashboard summary
+router.get('/dashboard-summary', WatchlistController.getDashboardSummary);
+
 // Check if item is in watchlist
 router.get('/check/:tmdbId', WatchlistController.checkItem);
 

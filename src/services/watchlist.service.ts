@@ -1,4 +1,5 @@
 import { Watchlist, IWatchlist, IWatchlistItem } from '../models/watchlist.model';
+import { WatchedList } from '../models/watched-list.model';
 import mongoose from 'mongoose';
 
 const DEFAULT_WATCHLIST_NAME = 'Watchlist';
@@ -26,6 +27,36 @@ type WatchlistLean = {
 };
 
 export class WatchlistService {
+    /**
+     * Get dashboard summary (Watched List, Default Watchlist, First Custom List)
+     */
+    static async getDashboardSummary(userId: string) {
+        const [watchedList, defaultWatchlist, customList] = await Promise.all([
+            WatchedList.findOne({ userId: new mongoose.Types.ObjectId(userId), isDefault: true })
+                .lean(),
+            Watchlist.findOne({ userId: new mongoose.Types.ObjectId(userId), isDefault: true })
+                .lean(),
+            Watchlist.findOne({ userId: new mongoose.Types.ObjectId(userId), isDefault: false })
+                .sort({ createdAt: 1 }) // First created custom list
+                .lean()
+        ]);
+
+        const formatList = (list: any) => {
+            if (!list) return null;
+            const { items, ...rest } = list;
+            return {
+                ...rest,
+                itemCount: items ? items.length : 0
+            };
+        };
+
+        return {
+            watchedList: formatList(watchedList),
+            defaultWatchlist: formatList(defaultWatchlist),
+            customList: formatList(customList)
+        };
+    }
+
     /**
      * Create the default watchlist for a new user
      */
