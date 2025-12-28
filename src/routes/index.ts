@@ -14,6 +14,7 @@ import watchlistRoutes from './watchlist.routes';
 import watchedListRoutes from './watched-list.routes';
 import episodeRatingRoutes from './episode-rating.routes';
 import seasonRatingRoutes from './season-rating.routes';
+import importRoutes from './import.routes';
 
 const router = Router();
 
@@ -33,5 +34,6 @@ router.use('/watchlists', watchlistRoutes);
 router.use('/watched', watchedListRoutes);
 router.use('/episodes', episodeRatingRoutes);
 router.use('/seasons', seasonRatingRoutes);
+router.use('/import', importRoutes);
 
 export default router;

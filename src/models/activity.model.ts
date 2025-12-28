@@ -2,7 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IActivity extends Document {
   userId: mongoose.Types.ObjectId;
-  type: 'movie_watched' | 'tv_episode_watched' | 'tv_show_watched' | 'review' | 'rating';
+  type: 'movie_watched' | 'tv_episode_watched' | 'tv_show_watched' | 'review' | 'rating' | 'bulk_import';
   mediaType: 'movie' | 'tv_show' | 'tv_episode';
   tmdbId: number;
   mediaTitle: string;
@@ -27,7 +27,7 @@ const activitySchema = new Schema<IActivity>(
     },
     type: {
       type: String,
-      enum: ['movie_watched', 'tv_episode_watched', 'tv_show_watched', 'review', 'rating'],
+      enum: ['movie_watched', 'tv_episode_watched', 'tv_show_watched', 'review', 'rating', 'bulk_import'],
       required: true
     },
     mediaType: {

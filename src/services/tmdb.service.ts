@@ -137,6 +137,90 @@ export class TMDBService {
     }
   }
 
+  /**
+   * Sanitize search query to handle special characters
+   * Converts en-dashes, em-dashes to regular hyphens, normalizes Unicode
+   */
+  private static sanitizeQuery(query: string): string {
+    return query
+      // Normalize Unicode to decomposed form then recompose
+      .normalize('NFKC')
+      // Dashes
+      .replace(/[–—−‐‑‒―]/g, '-')  // Various dash characters to hyphen
+      // Colons
+      .replace(/[：﹕]/g, ':')  // Full-width and small colons to regular
+      // Quotes
+      .replace(/[''‚‛]/g, "'")  // Smart single quotes
+      .replace(/[""„‟]/g, '"')  // Smart double quotes
+      // Spaces
+      .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ')  // Various space characters
+      // Remove invisible characters
+      .replace(/[\u200C\u200D\uFEFF]/g, '')
+      .trim();
+  }
+
+  /**
+   * Search for content (movie first, then TV fallback)
+   * Returns the result with mediaType indicator
+   */
+  static async searchContent(
+    query: string,
+    year?: number,
+    lang?: string
+  ): Promise<{
+    result: TMDBMovie | TMDBTvShow | null;
+    mediaType: 'movie' | 'tv';
+    details: TMDBMovieDetails | TMDBTvShowDetails | null;
+  }> {
+    const sanitizedQuery = this.sanitizeQuery(query);
+
+    try {
+      // Try movie search first
+      const movieParams: any = {
+        query: sanitizedQuery,
+        page: 1,
+        ...this.getLanguageParams(lang)
+      };
+      if (year) {
+        movieParams.primary_release_year = year;
+      }
+
+      const movieResponse = await this.client.get('/search/movie', { params: movieParams });
+      const movieResults: TMDBSearchResponse<TMDBMovie> = movieResponse.data;
+
+      if (movieResults.results && movieResults.results.length > 0) {
+        const movie = movieResults.results[0];
+        const details = await this.getMovieDetails(movie.id.toString(), lang);
+        return { result: movie, mediaType: 'movie', details };
+      }
+
+      // Fallback to TV search
+      const tvParams: any = {
+        query: sanitizedQuery,
+        page: 1,
+        ...this.getLanguageParams(lang)
+      };
+      if (year) {
+        tvParams.first_air_date_year = year;
+      }
+
+      const tvResponse = await this.client.get('/search/tv', { params: tvParams });
+      const tvResults: TMDBSearchResponse<TMDBTvShow> = tvResponse.data;
+
+      if (tvResults.results && tvResults.results.length > 0) {
+        const show = tvResults.results[0];
+        const details = await this.getShowDetails(show.id.toString(), lang);
+        return { result: show, mediaType: 'tv', details };
+      }
+
+      // Nothing found
+      return { result: null, mediaType: 'movie', details: null };
+    } catch (error) {
+      console.error('TMDb Search Content Error:', error);
+      return { result: null, mediaType: 'movie', details: null };
+    }
+  }
+
   static async searchTvShows(query: string, page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBTvShow>> {
     try {
       const response = await this.client.get('/search/tv', {
