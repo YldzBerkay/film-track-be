@@ -286,14 +286,14 @@ export class UserService {
     const user = await User.findById(userId);
     if (!user) return;
 
-    // Logic: Day starts at 03:00 GMT.
-    // We adjust the current time by subtracting 3 hours.
+    // Logic: Day starts at 00:00 Local Time (GMT+3).
+    // We adjust the current time by adding 3 hours.
     // Then we compare the YYYY-MM-DD parts.
     const now = new Date();
     const threeHours = 3 * 60 * 60 * 1000;
 
     const getStreakDateString = (date: Date) => {
-      const adjustedDate = new Date(date.getTime() - threeHours);
+      const adjustedDate = new Date(date.getTime() + threeHours);
       return adjustedDate.toISOString().split('T')[0];
     };
 
@@ -310,7 +310,7 @@ export class UserService {
     }
 
     // Check if yesterday
-    const yesterday = new Date(new Date().getTime() - threeHours);
+    const yesterday = new Date(new Date().getTime() + threeHours);
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStreakDate = yesterday.toISOString().split('T')[0];
 

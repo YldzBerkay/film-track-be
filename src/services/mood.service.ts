@@ -132,194 +132,150 @@ export class MoodService {
   }
 
   /**
-   * Calculate user mood from activities using POLARIZED INFLUENCE MODEL
-   * - Positive ratings (7-10) ADD to the mood profile
-   * - Negative ratings (1-4) SUBTRACT from the mood profile (Anti-Vector)
-   * - Neutral ratings (5-6) are filtered out (Noise)
+   * Calculate user mood - OPTIMIZED VERSION
+   * Fixes: N+1 Query Problem & Dead Code Implementation
    */
   static async calculateUserMood(userId: string): Promise<MoodVector> {
-    // 1. Get activities with ratings
-    const activities = await Activity.find({
-      userId,
-      $or: [
-        { type: 'movie_watched', rating: { $exists: true, $gte: 1 } },
-        { type: 'tv_show_watched', rating: { $exists: true, $gte: 1 } }
-      ]
-    })
-      .sort({ createdAt: -1 })
-      .lean();
+    // 1. Fetch Data in Parallel
+    const [activities, watchedList] = await Promise.all([
+      Activity.find({
+        userId,
+        rating: { $exists: true, $gte: 1 }
+      }).lean(),
+      WatchedList.findOne({ userId, isDefault: true }).lean()
+    ]);
 
-    // 2. Get WatchedList items with ratings (Source of Truth for direct adds)
-    const watchedList = await WatchedList.findOne({ userId, isDefault: true }).lean();
-    const watchedListItems = watchedList?.items.filter((i: IWatchedItem) => i.rating && i.rating >= 1) || [];
+    const watchedListItems = watchedList?.items.filter((i: any) => i.rating && i.rating >= 1) || [];
 
-    // 3. Merge and Deduplicate (prioritizing most recent)
-    // Map key: tmdbId -> Combined Activity-like object
+    // 2. Merge & Deduplicate Strategy
     const mergedMap = new Map<number, any>();
 
-    // Process activities first
-    for (const act of activities) {
-      const mediaType = act.mediaType === 'tv_show' || act.mediaType === 'tv_episode' ? 'tv' : 'movie';
-
+    // Process Activities
+    activities.forEach((act: any) => {
+      const mediaType = act.mediaType?.includes('tv') ? 'tv' : 'movie';
       mergedMap.set(Number(act.tmdbId), {
         tmdbId: Number(act.tmdbId),
-        mediaType, // Capture normalized mediaType
+        mediaType,
         rating: act.rating,
-        createdAt: act.createdAt,
-        title: act.mediaTitle,
-        type: 'activity',
-        mediaTitle: act.mediaTitle,
+        createdAt: new Date(act.createdAt),
+        title: act.mediaTitle || 'Unknown',
         reviewText: act.reviewText
       });
-    }
+    });
 
-    // Process watched list items (overwrite if newer or missing)
-    for (const item of watchedListItems) {
+    // Process WatchedList (Overwrite if newer)
+    watchedListItems.forEach((item: any) => {
       const existing = mergedMap.get(item.tmdbId);
       const itemDate = new Date(item.watchedAt || item.addedAt);
-
-      if (!existing || itemDate > new Date(existing.createdAt)) {
+      if (!existing || itemDate > existing.createdAt) {
         mergedMap.set(item.tmdbId, {
           tmdbId: item.tmdbId,
-          mediaType: item.mediaType === 'tv' ? 'tv' : 'movie', // WatchedList uses 'tv' already
+          mediaType: item.mediaType === 'tv' ? 'tv' : 'movie',
           rating: item.rating,
           createdAt: itemDate,
-          title: item.title,
-          type: 'watched_list',
-          mediaTitle: item.title,
-          reviewText: undefined
+          title: item.title
+        });
+      }
+    });
+
+    const mergedItems = Array.from(mergedMap.values())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    if (mergedItems.length === 0) return this.getDefaultMood();
+
+    // 3. PERFORMANCE FIX: Bulk Fetch Movies (Single Query)
+    const tmdbIds = mergedItems.map(i => i.tmdbId);
+    const moviesInDb = await Movie.find({
+      tmdbId: { $in: tmdbIds }
+    }).lean();
+
+    // Create a Map for O(1) Lookup: "tmdbId_mediaType" -> Movie Object
+    const movieMap = new Map(moviesInDb.map(m => [`${m.tmdbId}_${m.mediaType}`, m]));
+
+    // 4. Calculation Loop
+    const baselineWeight = 5.0;
+    const weightedSums = this.getWeightedSums(baselineWeight);
+    let totalWeight = baselineWeight;
+
+    // Sliding Window for Saturation Logic
+    const recentVectors: MoodVector[] = [];
+    const MAX_RECENT_HISTORY = 5;
+
+    for (const activity of mergedItems) {
+      const rating = activity.rating || 0;
+      if (rating >= 5 && rating <= 6) continue; // Noise Filter
+
+      let moodVector: MoodVector | null = null;
+      const cacheKey = `${activity.tmdbId}_${activity.mediaType}`;
+
+      if (movieMap.has(cacheKey)) {
+        // Fast Cache Hit
+        moodVector = (movieMap.get(cacheKey) as any).moodVector;
+      } else {
+        // If movie is missing from DB, we skip it in this optimized calculation 
+        // to avoid stalling the loop with API calls. 
+        // (In a background job, these should be populated).
+        continue;
+      }
+
+      if (!moodVector) continue;
+
+      // --- CORE LOGIC ---
+
+      // A. Influence
+      const influence = (rating - 5.5) / 4.5;
+
+      // B. Time Decay
+      const daysSince = (Date.now() - activity.createdAt.getTime()) / (1000 * 3600 * 24);
+      const timeDecay = Math.max(0.2, this.calculateTimeDecay(daysSince));
+
+      // C. Saturation Factor (Implemented!)
+      const saturation = this.calculateSaturationFactor(recentVectors, moodVector);
+
+      // Update Sliding Window
+      recentVectors.push(moodVector);
+      if (recentVectors.length > MAX_RECENT_HISTORY) recentVectors.shift();
+
+      // D. Final Weight
+      const weight = Math.abs(influence) * timeDecay * saturation;
+
+      if (weight > 0) {
+        totalWeight += weight;
+
+        (Object.keys(weightedSums) as Array<keyof MoodVector>).forEach(key => {
+          let targetValue = moodVector![key];
+
+          // Anti-Vector Logic
+          if (influence < 0) {
+            targetValue = 100 - targetValue;
+          }
+
+          weightedSums[key] += targetValue * weight;
         });
       }
     }
 
-    // Sort by date descending
-    const mergedItems = Array.from(mergedMap.values())
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    const defaultMood: MoodVector = {
-      adrenaline: 50,
-      melancholy: 50,
-      joy: 50,
-      tension: 50,
-      intellect: 50,
-      romance: 50,
-      wonder: 50,
-      nostalgia: 50,
-      darkness: 50,
-      inspiration: 50
-    };
-
-    if (mergedItems.length === 0) {
-      return defaultMood;
-    }
-
-    // 4. Calculate Weighted Average Mood
-    // Baseline (Neutral 50) prevents wild swings with few items. 
-    // Weight=5 means "it takes ~5 strong movies to pull the user significantly away from neutral".
-    const baselineWeight = 5.0;
-
-    // Accumulators
-    const weightedSums: MoodVector = {
-      adrenaline: 50 * baselineWeight,
-      melancholy: 50 * baselineWeight,
-      joy: 50 * baselineWeight,
-      tension: 50 * baselineWeight,
-      intellect: 50 * baselineWeight,
-      romance: 50 * baselineWeight,
-      wonder: 50 * baselineWeight,
-      nostalgia: 50 * baselineWeight,
-      darkness: 50 * baselineWeight,
-      inspiration: 50 * baselineWeight
-    };
-
-    let totalWeight = baselineWeight;
-
-    for (const activity of mergedItems) {
-      try {
-        let movie = await Movie.findOne({ tmdbId: activity.tmdbId, mediaType: activity.mediaType });
-        let moodVector: MoodVector;
-
-        if (movie && movie.moodVector) {
-          moodVector = movie.moodVector;
-        } else {
-          // Fetch movie details from TMDB to get genres, posterPath, releaseDate
-          let genres: string[] = [];
-          let posterPath = '';
-          let releaseDate = '';
-
-          try {
-            const mediaType = activity.mediaType || 'movie';
-            if (mediaType === 'movie') {
-              const details = await TMDBService.getMovieDetails(activity.tmdbId.toString());
-              genres = details.genres?.map(g => g.name) || [];
-              posterPath = details.poster_path || '';
-              releaseDate = details.release_date || '';
-            } else if (mediaType === 'tv') {
-              const details = await TMDBService.getShowDetails(activity.tmdbId.toString());
-              genres = details.genres?.map(g => g.name) || [];
-              posterPath = details.poster_path || '';
-              releaseDate = details.first_air_date || '';
-            }
-          } catch (err) {
-            console.warn(`[MoodService] Failed to fetch TMDB details for ${activity.tmdbId}`);
-          }
-
-          moodVector = await AIService.getOrAnalyzeMovie(
-            activity.tmdbId,
-            activity.mediaType || 'movie',
-            activity.mediaTitle || activity.title,
-            activity.reviewText,
-            genres,
-            posterPath,
-            releaseDate
-          );
-        }
-
-        // Calculate Influence Score (Raw - 5.5) / 4.5
-        const rating = activity.rating || 0;
-
-        // Noise Filter: Neutral ratings (5-6) are ignored
-        if (rating >= 5 && rating <= 6) continue;
-
-        // Influence: 1-10 mapped to -1.0 to +1.0 roughly
-        const influence = (rating - 5.5) / 4.5;
-
-        const daysSince = (new Date().getTime() - new Date(activity.createdAt).getTime()) / (1000 * 3600 * 24);
-        const timeDecay = Math.max(0.2, this.calculateTimeDecay(daysSince));
-
-        const weight = Math.abs(influence) * timeDecay;
-
-        if (weight > 0) {
-          totalWeight += weight;
-
-          // If influence is Negative, we target the ANTI-VECTOR (100 - Value)
-          // If influence is Positive, we target the VECTOR (Value)
-          (Object.keys(weightedSums) as Array<keyof MoodVector>).forEach(key => {
-            let targetValue = moodVector[key];
-            if (influence < 0) {
-              targetValue = 100 - targetValue; // Invert for hate
-            }
-            // Add weighted contribution
-            weightedSums[key] += targetValue * weight;
-          });
-        }
-
-      } catch (error) {
-        console.error(`Failed to process activity ${activity.tmdbId}:`, error);
-      }
-    }
-
-    // Final Division & Clamping
-    const clamp = (val: number) => Math.round(Math.max(0, Math.min(100, val)));
-
-    const finalMood: MoodVector = { ...defaultMood };
+    // 5. Normalize
+    const finalMood = this.getDefaultMood();
     if (totalWeight > 0) {
+      const clamp = (val: number) => Math.round(Math.max(0, Math.min(100, val)));
       (Object.keys(finalMood) as Array<keyof MoodVector>).forEach(key => {
         finalMood[key] = clamp(weightedSums[key] / totalWeight);
       });
     }
 
     return finalMood;
+  }
+
+  // Helpers
+  private static getDefaultMood(): MoodVector {
+    return { adrenaline: 50, melancholy: 50, joy: 50, tension: 50, intellect: 50, romance: 50, wonder: 50, nostalgia: 50, darkness: 50, inspiration: 50 };
+  }
+
+  private static getWeightedSums(base: number): MoodVector {
+    const mood = this.getDefaultMood();
+    (Object.keys(mood) as Array<keyof MoodVector>).forEach(k => mood[k] *= base);
+    return mood;
   }
   /**
    * Update or create user stats with current mood

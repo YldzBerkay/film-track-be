@@ -97,50 +97,47 @@ Return ONLY valid JSON without any markdown formatting.`;
     posterPath?: string,
     releaseDate?: string
   ): Promise<MoodVector> {
-    // Check if movie exists in database
-    let movie = await Movie.findOne({ tmdbId, mediaType });
+    // 1. Fast Read (Lean)
+    const existingMovie = await Movie.findOne({ tmdbId, mediaType }).lean();
 
-    if (movie && movie.moodVector && movie.aiProcessedAt) {
-      // Return cached mood vector
-      return movie.moodVector;
+    if (existingMovie && existingMovie.moodVector && existingMovie.aiProcessedAt) {
+      return existingMovie.moodVector;
     }
 
-    // Analyze with AI
+    // 2. Cache miss: Analyze
+    console.log(`[AI Service] Analyzing fresh movie: ${title}`);
     const moodVector = await this.analyzeMovie(title, overview);
 
-    // Save to database
-    if (movie) {
-      movie.moodVector = moodVector;
-      movie.aiProcessedAt = new Date();
-      // Update genres if provided and missing
-      if (genres && genres.length > 0 && (!movie.genres || movie.genres.length === 0)) {
-        movie.genres = genres;
-      }
-      // Update posterPath if provided and missing
-      if (posterPath && !movie.posterPath) {
-        movie.posterPath = posterPath;
-      }
-      // Update releaseDate if provided and missing
-      if (releaseDate && !movie.releaseDate) {
-        movie.releaseDate = releaseDate;
-      }
-      await movie.save();
-    } else {
-      movie = new Movie({
-        tmdbId,
-        mediaType,
-        title,
-        overview,
-        moodVector,
-        genres: genres || [],
-        posterPath: posterPath || '',
-        releaseDate: releaseDate || '',
-        aiProcessedAt: new Date()
-      });
-      await movie.save();
-    }
+    // 3. Atomic Upsert (The Fix)
+    // Using findOneAndUpdate ensures we don't create duplicates even under race conditions
+    try {
+      const updatedMovie = await Movie.findOneAndUpdate(
+        { tmdbId, mediaType },
+        {
+          $set: {
+            title,
+            overview,
+            moodVector,
+            aiProcessedAt: new Date(),
+            // Only update these if they are provided, keeping existing data otherwise
+            ...(genres?.length ? { genres } : {}),
+            ...(posterPath ? { posterPath } : {}),
+            ...(releaseDate ? { releaseDate } : {})
+          }
+        },
+        {
+          new: true,
+          upsert: true,
+          setDefaultsOnInsert: true
+        }
+      ).lean();
 
-    return moodVector;
+      return (updatedMovie as any).moodVector || moodVector;
+    } catch (dbError) {
+      console.error(`[AI Service] Atomic Upsert Failed for ${title}`, dbError);
+      // Fallback: Return the moodVector we calculated anyway, so the user isn't blocked.
+      return moodVector;
+    }
   }
 
   static async verifyFilmMemory(
@@ -239,12 +236,15 @@ Return JSON: {"movies": ["Film 1", "Film 2", ...]}`;
         temperature: 0.7 // Higher temperature for variety
       });
 
-      const content = response.choices[0]?.message?.content;
+      let content = response.choices[0]?.message?.content;
       if (!content) {
         throw new Error('No response from OpenAI');
       }
 
       console.log('[AI Curator] Raw OpenAI Response:', content);
+
+      // SANITIZATION: Strip markdown code blocks if present (common GPT issue)
+      content = content.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
 
       const parsed = JSON.parse(content);
 
@@ -263,6 +263,7 @@ Return JSON: {"movies": ["Film 1", "Film 2", ...]}`;
       }
 
       console.log('[AI Curator] Parsed Titles:', titles);
+
 
       return titles.slice(0, count);
     } catch (error) {

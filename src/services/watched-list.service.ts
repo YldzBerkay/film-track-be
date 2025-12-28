@@ -14,7 +14,8 @@ interface AddItemData {
     numberOfEpisodes?: number;
     numberOfSeasons?: number;
     genres?: string[];
-    rating?: number;
+    rating?: number;    // Optional: only save if user explicitly provides 1-10
+    feedback?: 'like' | 'dislike' | null;  // Raw sentiment (decoupled from rating)
     watchedAt?: Date;
 }
 
@@ -96,6 +97,7 @@ export class WatchedListService {
                 {
                     $set: {
                         'items.$.rating': item.rating,
+                        'items.$.feedback': item.feedback,
                         'items.$.numberOfEpisodes': item.numberOfEpisodes,
                         'items.$.numberOfSeasons': item.numberOfSeasons,
                         'items.$.genres': item.genres,
@@ -138,6 +140,7 @@ export class WatchedListService {
                             numberOfSeasons: item.numberOfSeasons,
                             genres: item.genres,
                             rating: item.rating,
+                            feedback: item.feedback,
                             watchedAt: item.watchedAt || new Date(),
                             addedAt: new Date()
                         }

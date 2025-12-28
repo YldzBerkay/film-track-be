@@ -150,23 +150,74 @@ export class RecommendationService {
     }
 
     /**
-     * Calculate inverse mood for "shift my mood" feature
-     * High values become low, low values become high
+     * Calculate target vector for mood-based recommendations
+     * For 'match' mode: returns the original userMood
+     * For 'shift' mode: constructs a fresh "Antidote Vector" from neutral base
+     * 
+     * FIX: In 'shift' mode, we do NOT copy the userMood. We build a fresh target.
+     * If user has high Adrenaline (e.g., 69), we explicitly want LOW Adrenaline (e.g., 10),
+     * regardless of arbitrary thresholds.
      */
-    private static invertMood(mood: MoodVector): MoodVector {
-        return {
-            adrenaline: 100 - mood.adrenaline,
-            melancholy: 100 - mood.melancholy,
-            joy: 100 - mood.joy,
-            tension: 100 - mood.tension,
-            intellect: 100 - mood.intellect,
-            romance: 100 - (mood.romance || 50),
-            wonder: 100 - (mood.wonder || 50),
-            nostalgia: 100 - (mood.nostalgia || 50),
-            darkness: 100 - (mood.darkness || 50),
-            inspiration: 100 - (mood.inspiration || 50)
+    private static calculateTargetVector(userMood: MoodVector, mode: 'match' | 'shift'): MoodVector {
+        if (mode === 'match') {
+            return userMood;
+        }
+
+        // SHIFT MODE: Construct a "Counter-Vector" from neutral base
+        // Start with a fresh, neutral target (low intensity negatives, moderate positives)
+        const target: MoodVector = {
+            adrenaline: 20,
+            melancholy: 20,
+            joy: 50,       // Default slightly hopeful
+            tension: 20,
+            intellect: 50, // Neutral - preserved
+            romance: 30,
+            wonder: 50,
+            nostalgia: 30,
+            darkness: 10,
+            inspiration: 50
         };
+
+        // 1. ANALYZE & INVERT: Handle Adrenaline/Tension (The Stress Axis)
+        if (userMood.adrenaline > 50 || userMood.tension > 50) {
+            target.adrenaline = 10; // Force calm
+            target.tension = 10;    // Force relax
+            target.joy = 85;        // Boost joy as antidote
+            target.nostalgia = 70;  // Nostalgia is calming
+        }
+
+        // 2. Handle Melancholy/Darkness (The Sadness Axis)
+        if (userMood.melancholy > 50 || userMood.darkness > 50) {
+            target.melancholy = 10;
+            target.darkness = 10;
+            target.joy = 90;        // High Joy
+            target.inspiration = 85; // High Inspiration
+            target.wonder = 80;      // High Wonder
+        }
+
+        // 3. Handle Over-Joy (To ground them - shift from pure Comedy to Intellect/Thriller)
+        if (userMood.joy > 80 && userMood.intellect < 40) {
+            target.joy = 40;
+            target.intellect = 85;
+            target.tension = 60; // Add some spice
+        }
+
+        // 4. Handle "Boredom" (Low everything) - boost excitement
+        const isBored = Object.values(userMood).every(v => v < 60);
+        if (isBored) {
+            target.adrenaline = 85;
+            target.wonder = 85;
+            target.inspiration = 80;
+        }
+
+        console.log(`[TargetVector] SHIFT CALCULATION:`);
+        console.log(`   User: Adrenaline=${userMood.adrenaline}, Tension=${userMood.tension}, Melancholy=${userMood.melancholy}`);
+        console.log(`   Target: Adrenaline=${target.adrenaline}, Tension=${target.tension}, Joy=${target.joy}`);
+
+        return target;
     }
+
+
 
     /**
      * Calculate time decay factor (Consistent with MoodService)
@@ -188,7 +239,7 @@ export class RecommendationService {
     /**
      * Get mood-based movie recommendations
      * @param mode 'match' = similar mood, 'shift' = opposite mood to change user's mood
-     * @param includeWatched whether to include movies the user has already watched
+     * @param includeWatched whether to include movies the user has already watched (not used in AI mode)
      */
     static async getMoodBasedRecommendations(
         userId: string,
@@ -199,172 +250,10 @@ export class RecommendationService {
         forceRefresh: boolean = false
     ): Promise<MoodRecommendation[]> {
         try {
-            // AI-FIRST: For 'match' mode, use AI curation (100% AI-driven)
-            if (mode === 'match') {
-                console.log(`[MoodBased] Delegating to AI Curation (100% AI-driven) ${forceRefresh ? '- FORCE REFRESH' : ''}`);
-                return await this.getAICuratedRecommendations(userId, limit, lang, forceRefresh);
-            }
+            console.log(`[MoodBased] Delegating to AI Curation (${mode.toUpperCase()} mode) ${forceRefresh ? '- FORCE REFRESH' : ''}`);
 
-            // For 'shift' mode, use existing DB-based logic (opposite mood)
-            // 1. Get user's current mood
-            const userMood = await MoodService.getUserMood(userId);
-
-            // 2. Get user's watched movies (only if excluding watched)
-            let excludeIds = new Set<number>();
-            const excludedGenres = new Set<string>(); // For negative feedback
-
-            if (!includeWatched) {
-                const watchedActivities = await Activity.find({
-                    userId,
-                    type: { $in: ['movie_watched', 'rating', 'review'] }
-                }).sort({ createdAt: -1 });
-
-                // 2a. Basic exclusion of watched items from Activities
-                watchedActivities.forEach(act => excludeIds.add(Number(act.tmdbId)));
-
-                // 2b. Basic exclusion of items from WatchedList (Source of Truth)
-                const watchedList = await WatchedList.findOne({ userId, isDefault: true }).lean();
-                if (watchedList && watchedList.items) {
-                    // STRICT FILTER: Only process MOVIES for movie recommendations
-                    const movieItems = watchedList.items.filter(item => item.mediaType === 'movie');
-
-                    movieItems.forEach(item => {
-                        excludeIds.add(item.tmdbId);
-
-                        // Also check for negative feedback (Ratings 1-4) in WatchedList
-                        if (item.rating && item.rating <= 4) {
-                            const timeDecay = this.calculateTimeDecay(new Date(item.watchedAt || item.addedAt));
-                            const negativeScore = ((11 - item.rating) / 10) * timeDecay;
-                            // We don't have a unified list here easily without refactoring, 
-                            // but we ensure it IS excluded via excludeIds.
-                            // For now, the Activity-based negative feedback loop below is sufficient 
-                            // as most ratings generate activities. 
-                            // If needed, we could merge lists like in MoodService, but exclusion is the priority here.
-                        }
-                    });
-                }
-
-                // NEGATIVE FEEDBACK LOOP (Activity Based)
-                // Identify items with high negative influence:
-                // Formula: ((11 - Rating) / 10) * TimeDecay
-                // This gives high scores to items that are both RECENT and LOW RATED.
-
-                const negativeItems = watchedActivities
-                    .filter(act => act.rating && act.rating <= 4) // Only consider "bad" ratings
-                    .map(act => {
-                        const timeDecay = this.calculateTimeDecay(new Date(act.createdAt));
-                        const negativeScore = ((11 - act.rating!) / 10) * timeDecay;
-                        return { tmdbId: act.tmdbId, score: negativeScore, genres: [] as string[] }; // Genres would need fresh fetch if not in activity
-                    })
-                    .sort((a, b) => b.score - a.score) // Sort by highest negative influence
-                    .slice(0, 10); // LIMIT TO TOP 10
-
-                // In a future update, we can pass these 'negativeItems' IDs to the AI service
-                // or use their metadata to penalize the vector search.
-                // For now, we enforce that they are excluded (already done by basic exclusion)
-                // and log them for debugging/tuning.
-                if (negativeItems.length > 0) {
-                    // console.log('Top 10 Negative Feedback Items:', negativeItems);
-                }
-            }
-
-            // 3. Get movies with mood vectors from our database
-            // Ensure we strictly default to 'movie' recommendations for now to prevent TV shows appearing
-            // In the future, we can add a 'type' parameter to this method.
-            const query: any = {
-                moodVector: { $exists: true },
-                mediaType: 'movie'
-            };
-
-            if (!includeWatched && excludeIds.size > 0) {
-                query.tmdbId = { $nin: [...excludeIds] };
-            }
-            let moviesWithMood = await Movie.find(query).lean();
-
-            // HYDRATE WITH LOCALIZATIONS
-            if (lang) {
-                moviesWithMood = await MovieService.hydrateMoviesWithLanguage(moviesWithMood, lang, forceRefresh);
-            }
-
-            // 4. Target mood depends on mode
-            const targetMood = mode === 'shift' ? this.invertMood(userMood) : userMood;
-
-            // 5. Calculate similarity scores
-            const scoredMovies = moviesWithMood
-                .filter(movie => movie.moodVector)
-                .map(movie => {
-                    const baseSim = this.calculateCosineSimilarity(targetMood, movie.moodVector!);
-
-                    // PENALTY LOGIC:
-                    // If user has strong polarization (e.g. Darkness > 80), penalize movies that lack it (Darkness < 40).
-                    // Or if user has Low Joy (< 20) and movie has High Joy (> 80).
-                    let penalty = 0;
-
-                    // 1. Darkness Penalty (User wants Dark, Movie is Bright)
-                    if (targetMood.darkness >= 80 && movie.moodVector!.darkness <= 40) {
-                        penalty += 0.3; // Huge penalty
-                    }
-
-                    // 2. Joy Penalty (User hates Joy, Movie is Joyful)
-                    if (targetMood.joy <= 20 && movie.moodVector!.joy >= 80) {
-                        penalty += 0.3;
-                    }
-
-                    // 3. Tension Penalty (User wants Tension, Movie is Chill)
-                    if (targetMood.tension >= 80 && movie.moodVector!.tension <= 40) {
-                        penalty += 0.2;
-                    }
-
-                    // Apply penalty
-                    const simRatio = Math.max(0, baseSim - penalty);
-                    let finalSim = simRatio * 100;
-
-                    // Clamp and format to 1 decimal place
-                    finalSim = Math.min(Math.max(finalSim, 0), 100);
-                    finalSim = Number(finalSim.toFixed(1));
-
-                    return {
-                        tmdbId: movie.tmdbId,
-                        title: movie.title,
-                        posterPath: movie.posterPath || '',
-                        backdropPath: '',
-                        overview: movie.overview || '',
-                        releaseDate: movie.releaseDate || '',
-                        moodVector: movie.moodVector!,
-                        moodSimilarity: finalSim,
-                        moodMatchType: mode
-                    };
-                })
-                .sort((a, b) => b.moodSimilarity - a.moodSimilarity)
-                .slice(0, limit);
-
-            // 6. If we don't have enough movies with mood vectors, supplement with popular movies
-            if (scoredMovies.length < limit) {
-                const needed = limit - scoredMovies.length;
-                const popularMovies = await TMDBService.getPopularMovies(1, lang);
-
-                const additionalMovies = popularMovies.results
-                    .filter(m => !excludeIds.has(m.id) && !scoredMovies.some(s => s.tmdbId === m.id))
-                    .slice(0, needed)
-                    .map(m => ({
-                        tmdbId: m.id,
-                        title: m.title,
-                        posterPath: m.poster_path || '',
-                        backdropPath: m.backdrop_path || '',
-                        overview: m.overview,
-                        releaseDate: m.release_date,
-                        moodVector: {
-                            adrenaline: 50, melancholy: 50, joy: 50, tension: 50, intellect: 50,
-                            romance: 50, wonder: 50, nostalgia: 50, darkness: 50, inspiration: 50
-                        }, // Use neutral mood as placeholder for unanalyzed movies
-                        moodSimilarity: 0.5, // Neutral score
-                        moodMatchType: mode
-                    }));
-
-                scoredMovies.push(...additionalMovies);
-            }
-
-            return scoredMovies;
+            // Simply call the updated AI method for BOTH modes
+            return await this.getAICuratedRecommendations(userId, limit, lang, forceRefresh, mode);
 
         } catch (error) {
             console.error('Mood Recommendations Error:', error);
@@ -774,6 +663,74 @@ export class RecommendationService {
     }
 
     /**
+     * Get recent user feedback context for AI prompt injection
+     * Fetches liked/disliked/rated items from the last N days
+     */
+    private static async getRecentFeedbackContext(userId: string, days: number = 14): Promise<string> {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - days);
+
+        const watchedList = await WatchedList.findOne({ userId, isDefault: true }).lean();
+        if (!watchedList || !watchedList.items) {
+            return '';
+        }
+
+        // Filter items from the last N days (movies only)
+        const recentItems = watchedList.items.filter(item =>
+            item.mediaType === 'movie' &&
+            new Date(item.watchedAt || item.addedAt) >= cutoffDate
+        );
+
+        if (recentItems.length === 0) {
+            return '';
+        }
+
+        // Categorize by feedback and rating
+        const likedTitles: string[] = [];
+        const dislikedTitles: string[] = [];
+        const ratedTitles: string[] = [];
+
+        recentItems.forEach(item => {
+            if (item.feedback === 'like') {
+                likedTitles.push(item.title);
+            } else if (item.feedback === 'dislike') {
+                dislikedTitles.push(item.title);
+            }
+
+            if (item.rating) {
+                ratedTitles.push(`${item.title} (${item.rating}/10)`);
+            }
+        });
+
+        // Build context string
+        const contextParts: string[] = [];
+
+        if (likedTitles.length > 0) {
+            contextParts.push(`The user explicitly LIKED: ${likedTitles.join(', ')}`);
+        }
+        if (dislikedTitles.length > 0) {
+            contextParts.push(`The user explicitly DISLIKED: ${dislikedTitles.join(', ')}`);
+        }
+        if (ratedTitles.length > 0) {
+            contextParts.push(`The user RATED: ${ratedTitles.join(', ')}`);
+        }
+
+        if (contextParts.length === 0) {
+            return '';
+        }
+
+        return `
+[RECENT USER FEEDBACK - LAST ${days} DAYS]
+${contextParts.join('\n')}
+
+INSTRUCTION:
+Use this feedback to refine the next suggestions.
+- If they Liked a movie, find structurally similar films.
+- If they Disliked a movie, avoid that specific sub-genre or tone.
+- Consider their rating patterns when selecting recommendations.
+`;
+    }
+    /**
      * Resolve a movie title: Check DB -> Search TMDB -> Analyze -> Save
      */
     /**
@@ -902,7 +859,23 @@ export class RecommendationService {
             if (!enSearchResult.results || enSearchResult.results.length === 0) {
                 return null;
             }
-            const tmdbMovie = enSearchResult.results[0];
+
+            // SMART SELECTION: Do NOT just take [0].
+            // Sometimes the first result is a low-quality entry.
+            // Priority: Valid Poster AND Vote Count > 10
+            let bestMatch = enSearchResult.results[0]; // Default fallback
+
+            if (enSearchResult.results.length > 1) {
+                // 1. Filter out garbage (no poster, very low votes)
+                const validCandidates = enSearchResult.results.filter((m: any) => m.poster_path && m.vote_count > 10);
+
+                // 2. If we have valid candidates, sort by vote count (popularity proxy)
+                if (validCandidates.length > 0) {
+                    bestMatch = validCandidates.sort((a: any, b: any) => b.vote_count - a.vote_count)[0];
+                }
+            }
+
+            const tmdbMovie = bestMatch;
 
             // Skip if already watched
             if (excludeIds.has(tmdbMovie.id)) return null;
@@ -979,7 +952,8 @@ export class RecommendationService {
         userId: string,
         limit: number = 10,
         lang?: string,
-        forceRefresh: boolean = false
+        forceRefresh: boolean = false,
+        mode: 'match' | 'shift' = 'match'
     ): Promise<MoodRecommendation[]> {
         const startTime = Date.now();
         const CACHE_DURATION_DAYS = 7;
@@ -989,7 +963,7 @@ export class RecommendationService {
             if (!forceRefresh) {
                 const cachedData = await UserRecommendationCache.findOne({
                     userId,
-                    moodMode: 'match',
+                    moodMode: mode,
                     expiresAt: { $gt: new Date() }
                 }).lean();
 
@@ -1033,20 +1007,61 @@ export class RecommendationService {
             const moodDescription = this.buildMoodDescription(userMood);
             console.log(`[AI Curation] User mood description: ${moodDescription}`);
 
-            // 3b. NEW: Identify Top 3 Dominant Dimensions for Genre Mapping
+            // 3b. Identify Top 3 Dominant Dimensions for Genre Mapping
             const sortedMoods = Object.entries(userMood)
                 .sort(([, a], [, b]) => b - a)
                 .slice(0, 3)
                 .map(([key]) => key);
 
-            // 3c. Map to Target Genres
-            const targetGenres = new Set<string>();
-            sortedMoods.forEach(mood => {
-                const genres = MOOD_GENRE_MAP[mood] || [];
-                genres.forEach(g => targetGenres.add(g));
-            });
+            // 3c. BRANCHED LOGIC: Match vs Shift
+            let targetGenres = new Set<string>();
+            let aiInstruction = '';
+
+            if (mode === 'match') {
+                // MATCH LOGIC: Map Dominant Moods -> Genres
+                sortedMoods.forEach(mood => {
+                    const genres = MOOD_GENRE_MAP[mood] || [];
+                    genres.forEach(g => targetGenres.add(g));
+                });
+                aiInstruction = `The user loves '${sortedMoods.join(', ')}' movies. Suggest ${limit + 5} feature films that perfectly match this mood.`;
+                console.log(`[AI Curation] MATCH Mode - Target Genres: ${Array.from(targetGenres).join(', ')}`);
+            } else if (mode === 'shift') {
+                // SHIFT LOGIC: Map Dominant Moods -> Antidotes -> Genres
+                const antidoteEmotions = new Set<string>();
+
+                sortedMoods.forEach(mood => {
+                    const antidotes = MOOD_ANTIDOTES[mood] || [];
+                    antidotes.forEach(a => antidoteEmotions.add(a));
+                });
+
+                // Map Antidotes to Genres
+                antidoteEmotions.forEach(emotion => {
+                    const genres = MOOD_GENRE_MAP[emotion] || [];
+                    genres.forEach(g => targetGenres.add(g));
+                });
+
+                // Identify Genres to AVOID (the user's current dominant mood genres)
+                const avoidGenres = new Set<string>();
+                sortedMoods.forEach(mood => {
+                    const genres = MOOD_GENRE_MAP[mood] || [];
+                    genres.forEach(g => avoidGenres.add(g));
+                });
+
+                const antidoteList = Array.from(antidoteEmotions).join(', ');
+                const avoidList = Array.from(avoidGenres).join(', ');
+
+                // STRONG PROMPT: Explicitly forbid the user's current mood genres
+                aiInstruction = `
+CURRENT STATE: The user is feeling '${sortedMoods.join(', ')}' (typical genres: ${avoidList}).
+GOAL: They need a 'Mood Shift' / Palette Cleanser.
+TASK: Suggest ${limit + 5} feature films that evoke '${antidoteList}'.
+CONSTRAINT: Do NOT suggest ${avoidList} movies. 
+Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy instead.
+`;
+                console.log(`[AI Curation] SHIFT Mode - Antidotes: ${antidoteList}, Avoid: ${avoidList}, Target Genres: ${Array.from(targetGenres).join(', ')}`);
+            }
+
             const genreList = Array.from(targetGenres);
-            console.log(`[AI Curation] Target Genres for Match Mode: ${genreList.join(', ')}`);
 
             // 4. Build exclusion set (watched movies) - still exclude what user has seen
             const excludeIds = new Set<number>();
@@ -1061,14 +1076,22 @@ export class RecommendationService {
             activities.forEach(act => excludeIds.add(Number(act.tmdbId)));
 
             // 5. Ask AI for movie suggestions - THE ONLY SOURCE
-            // Updated Prompt to include Genre Constraints
-            const prompt = `The user loves '${sortedMoods.join(', ')}' movies. Suggest ${limit + 5} feature films that perfectly match this mood. Focus primarily on these genres: ${genreList.join(', ')}. Do NOT suggest TV Series.`;
+            // Updated Prompt to include Genre Constraints AND Recent Feedback
+            const feedbackContext = await this.getRecentFeedbackContext(userId, 14);
+            const prompt = `${aiInstruction} Focus primarily on these genres: ${genreList.join(', ')}. Do NOT suggest TV Series.`;
+
+            // Build full prompt with mood description, prompt, and feedback context
+            const fullPrompt = feedbackContext
+                ? `${moodDescription}\n\n${prompt}\n\n${feedbackContext}`
+                : `${moodDescription}\n\n${prompt}`;
+
+            console.log(`[AI Curation] Sending ${mode.toUpperCase()} prompt with${feedbackContext ? '' : 'out'} feedback context`);
 
             // We pass the refined prompt instead of just moodDescription if the AI service supports it, 
             // or we append it to the moodDescription if the service just takes a string.
             // Assuming getCuratorSuggestions uses the string as the core instruction:
             const suggestedTitles = await AIService.getCuratorSuggestions(
-                `${moodDescription}\n\n${prompt}`,
+                fullPrompt,
                 limit + 5 // Request extra to account for exclusions and TV show filtering
             );
 
@@ -1089,15 +1112,46 @@ export class RecommendationService {
 
             console.log(`[AI Curation] Resolved ${resolvedMovies.length} movies (${resolvedMovies.filter(m => m.isNewlyDiscovered).length} newly discovered)`);
 
-            // 7. Calculate similarity and rank
+            // 7. Calculate target vector and similarity
+            // For 'match' mode: compare against userMood
+            // For 'shift' mode: compare against emotionally balanced target vector
+            const targetVector = this.calculateTargetVector(userMood, mode);
+
             const rankedMovies = resolvedMovies
                 .map(movie => {
-                    let sim = this.calculateCosineSimilarity(userMood, movie.moodVector) * 100;
+                    let sim = this.calculateCosineSimilarity(targetVector, movie.moodVector) * 100;
 
                     // GENRE BOOST: +5% if movie has at least one matching genre
                     const hasMatchingGenre = movie.genres && movie.genres.some((g: string) => targetGenres.has(g));
                     if (hasMatchingGenre) {
                         sim += 5;
+                    }
+
+                    // 3. THE SKEPTIC PENALTY (CRITICAL FIX FOR SHIFT MODE)
+                    if (mode === 'shift') {
+                        // Check similarity to the user's ORIGINAL (Problematic) Mood
+                        const similarityToOriginalMood = this.calculateCosineSimilarity(userMood, movie.moodVector);
+
+                        // Rule A: If movie feels too much like the user's current state (>65%), kill it.
+                        // Example: User is Stressed -> Movie is Stressed. Don't recommend it even if it has Joy.
+                        if (similarityToOriginalMood > 0.65) {
+                            console.log(`[Skeptic Filter] Penalizing '${movie.title}' in Shift Mode.`);
+                            console.log(`   Reason: Too similar to original mood (${(similarityToOriginalMood * 100).toFixed(1)}%)`);
+                            sim -= 50;
+                        }
+
+                        // Rule B: Explicit Tension/Darkness Block
+                        // If user is Tense (>60) and Movie is Tense (>60), hard block.
+                        if (userMood.tension > 60 && movie.moodVector.tension > 60) {
+                            console.log(`[Skeptic Filter] Hard Block '${movie.title}': High Tension match in Shift Mode.`);
+                            sim -= 100;
+                        }
+
+                        // Rule C: Explicit Melancholy Block
+                        if (userMood.melancholy > 60 && movie.moodVector.melancholy > 60) {
+                            console.log(`[Skeptic Filter] Hard Block '${movie.title}': High Melancholy match in Shift Mode.`);
+                            sim -= 100;
+                        }
                     }
 
                     // Score Clamping: Ensure 0-100 range and format to 1 decimal place
@@ -1106,10 +1160,12 @@ export class RecommendationService {
 
                     return {
                         ...movie,
-                        moodSimilarity: sim
+                        moodSimilarity: sim,
+                        moodMatchType: mode // Explicitly set the requested mode
                     };
                 })
                 .sort((a, b) => b.moodSimilarity - a.moodSimilarity)
+                .filter(m => m.moodSimilarity > 40) // Remove heavily penalized movies
                 .slice(0, limit);
 
             // 8. Save to cache with 7-day expiry
@@ -1128,11 +1184,11 @@ export class RecommendationService {
             }));
 
             await UserRecommendationCache.findOneAndUpdate(
-                { userId, moodMode: 'match' },
+                { userId, moodMode: mode },
                 {
                     userId,
                     recommendations: cacheData,
-                    moodMode: 'match',
+                    moodMode: mode,
                     generatedAt: new Date(),
                     expiresAt
                 },
@@ -1254,10 +1310,12 @@ export class RecommendationService {
     /**
      * Get a single replacement recommendation (uses quota)
      * Returns new movie or QUOTA_EXCEEDED error
+     * @param rejectedTitle Optional: title of the movie the user rejected, for context injection
      */
     static async getSingleReplacement(
         userId: string,
         excludeTmdbIds: number[],
+        rejectedTitle?: string,
         lang?: string
     ): Promise<{ success: boolean; data?: MoodRecommendation; error?: string; remaining?: number }> {
         try {
@@ -1293,8 +1351,15 @@ export class RecommendationService {
             const userMood = await MoodService.getUserMood(userId);
             const moodDescription = this.buildMoodDescription(userMood);
 
+            // Build prompt with rejection context if available
+            let promptWithContext = moodDescription;
+            if (rejectedTitle) {
+                promptWithContext += `\n\nUser rejected "${rejectedTitle}". Suggest an immediate alternative that is tonally different.`;
+                console.log(`[Replace] User rejected: ${rejectedTitle}`);
+            }
+
             // Ask AI for a few suggestions
-            const suggestedTitles = await AIService.getCuratorSuggestions(moodDescription, 5);
+            const suggestedTitles = await AIService.getCuratorSuggestions(promptWithContext, 5);
 
             if (suggestedTitles.length === 0) {
                 return { success: false, error: 'NO_SUGGESTIONS', remaining: user.recommendationQuota.remaining };

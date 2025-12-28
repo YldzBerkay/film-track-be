@@ -9,7 +9,8 @@ export interface IWatchedItem {
     numberOfEpisodes?: number;
     numberOfSeasons?: number;
     genres?: string[];
-    rating?: number;           // 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5
+    rating?: number;           // 1-10 integer scale
+    feedback?: 'like' | 'dislike' | null;  // Raw sentiment (decoupled from rating)
     watchedAt: Date;           // When they watched it
     addedAt: Date;             // When it was added to the list
 }
@@ -60,6 +61,11 @@ const watchedItemSchema = new Schema<IWatchedItem>(
                 },
                 message: 'Rating must be an integer between 1 and 10'
             }
+        },
+        feedback: {
+            type: String,
+            enum: ['like', 'dislike', null],
+            default: null
         },
         watchedAt: {
             type: Date,
