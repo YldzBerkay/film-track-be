@@ -19,6 +19,7 @@ interface AddItemData {
     reviewText?: string;
     feedback?: 'like' | 'dislike' | null;  // Raw sentiment (decoupled from rating)
     watchedAt?: Date;
+    isMoodPick?: boolean;
 }
 
 // Plain object type for lean() results
@@ -165,7 +166,8 @@ export class WatchedListService {
                     mediaPosterPath: item.posterPath,
                     rating: item.rating,
                     reviewText: item.reviewText,
-                    genres: item.genres
+                    genres: item.genres,
+                    isMoodPick: item.isMoodPick
                 });
             }
         }

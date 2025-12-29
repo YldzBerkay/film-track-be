@@ -267,8 +267,8 @@ export class RecommendationController {
                 return res.status(401).json({ message: 'Unauthorized' });
             }
 
-            // tmdbId, mediaType, feedback, rating
-            const { tmdbId, mediaType, feedback, rating } = req.body;
+            // tmdbId, mediaType, feedback, rating, review
+            const { tmdbId, mediaType, feedback, rating, review } = req.body;
 
             if (!tmdbId || !mediaType || feedback === undefined) {
                 return res.status(400).json({
@@ -282,7 +282,8 @@ export class RecommendationController {
                 Number(tmdbId),
                 mediaType,
                 Number(feedback),
-                Number(rating || 0)
+                Number(rating || 0),
+                review // Pass optional review text
             );
 
             return res.status(200).json({

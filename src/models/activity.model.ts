@@ -13,6 +13,7 @@ export interface IActivity extends Document {
   rating?: number;
   reviewText?: string;
   isSpoiler: boolean;
+  isMoodPick?: boolean;
   genres?: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -60,6 +61,10 @@ const activitySchema = new Schema<IActivity>(
     rating: Number,
     reviewText: String,
     isSpoiler: {
+      type: Boolean,
+      default: false
+    },
+    isMoodPick: {
       type: Boolean,
       default: false
     },

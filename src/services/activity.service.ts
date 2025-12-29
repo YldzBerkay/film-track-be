@@ -16,6 +16,7 @@ interface CreateActivityData {
   rating?: number;
   reviewText?: string;
   isSpoiler?: boolean;
+  isMoodPick?: boolean;
   genres?: string[];
 }
 
@@ -280,6 +281,11 @@ export class ActivityService {
       if (data.reviewText) {
         existingActivity.reviewText = data.reviewText;
         existingActivity.type = 'review';
+      }
+
+      // If it is a mood pick, ensure that is set
+      if (data.isMoodPick) {
+        existingActivity.isMoodPick = true;
       }
 
       // Bump timestamp to bring it to top of feed? maybe not, keep original time

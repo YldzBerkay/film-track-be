@@ -1372,39 +1372,132 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
         tmdbId: number,
         mediaType: string,
         feedback: number,
-        rating: number
+        rating?: number, // Optional rating for dynamic influence
+        review?: string // Optional review text
     ): Promise<any> {
         try {
-            // 1. Fetch title if needed (for consistency with internal logic)
-            let title = 'Unknown Movie';
-            try {
-                // Try to find in DB first
-                const existing = await Movie.findOne({ tmdbId, mediaType });
-                if (existing) {
-                    title = existing.title;
-                } else {
-                    // Fetch from TMDB
-                    // Defaulting to 'en' as we don't have lang context, or 'en-US'
-                    const details = await TMDBService.getMovieDetails(tmdbId.toString(), 'en-US');
-                    title = details.title;
-                }
-            } catch (err) {
-                console.warn(`[RL Feedback] Could not resolve title for TMDB ${tmdbId}`);
+            const user = await User.findById(userId);
+            if (!user) throw new Error('User not found');
+
+            // 1. Fetch Movie & Mood Vector
+            let movie = await Movie.findOne({ tmdbId, mediaType }).lean();
+            if (!movie || !movie.moodVector) {
+                // Fetch details if missing (for title) and analyze
+                const tmdbType = mediaType === 'movie' ? 'movie' : 'tv';
+                const details = mediaType === 'movie'
+                    ? await TMDBService.getMovieDetails(tmdbId.toString(), 'en-US')
+                    : await TMDBService.getShowDetails(tmdbId.toString(), 'en-US');
+
+                const title = mediaType === 'movie' ? (details as any).title : (details as any).name;
+                const overview = details.overview;
+
+                const analysedVector = await AIService.getOrAnalyzeMovie(tmdbId, tmdbType, title, overview);
+
+                // Re-fetch to get the full object including vector
+                movie = await Movie.findOne({ tmdbId, mediaType }).lean();
             }
 
-            // 2. Map feedback to action
-            // Feedback: 1 (Like), -1 (Dislike)
-            // Rating: 0-10
-            const action = feedback > 0 ? 'like' : 'dislike';
+            if (!movie?.moodVector) {
+                console.warn(`[RL Feedback] Could not determine mood vector for ${tmdbId}`);
+                return { success: false, message: 'Mood vector unavailable' };
+            }
 
-            // 3. Delegate to existing logic
-            // In future, we can use 'rating' to adjust the influence weight dynamically
-            return await this.processRecommendationFeedback(userId, tmdbId, title, action);
+            // 2. Get User's Current Mood
+            const userMood = await MoodService.getUserMood(userId);
+
+            // 3. Calculate New Vector
+            const newMood = this.calculateNewVector(userMood, movie.moodVector, feedback, rating);
+
+            // 4. Save New Mood Profile
+            await MoodService.setUserMood(userId, newMood);
+            console.log(`[RL Feedback] Updated mood for user ${userId}. Trigger: ${movie.title} (${feedback > 0 ? 'Like' : 'Dislike'})`);
+
+            // 5. Handle Blacklisting for Dislikes
+            if (feedback === -1) {
+                if (!user.blacklistedMovies.includes(tmdbId)) {
+                    user.blacklistedMovies.push(tmdbId);
+                    await user.save();
+                    console.log(`[RL Feedback] Blacklisted movie ${tmdbId}`);
+                }
+            }
+
+            // 6. Integration: Add to Watched List & Create Activity
+            // We use WatchedListService.addItem which handles both
+            try {
+                const { WatchedListService } = await import('./watched-list.service');
+                await WatchedListService.addItem(userId, {
+                    tmdbId,
+                    mediaType: mediaType as 'movie' | 'tv',
+                    title: movie.title,
+                    posterPath: movie.posterPath,
+                    runtime: (movie as any).runtime || 0,
+                    // If TV show, we might need these but for now default to 0/empty
+                    // In a perfect world we fetch them, but movie object usually has them
+                    numberOfEpisodes: (movie as any).numberOfEpisodes,
+                    numberOfSeasons: (movie as any).numberOfSeasons,
+                    genres: movie.genres,
+                    rating: rating,
+                    reviewText: review,
+                    feedback: feedback > 0 ? 'like' : (feedback < 0 ? 'dislike' : null),
+                    // Crucial: Mark as "Mood Pick" only if Liked (feedback > 0)
+                    isMoodPick: feedback > 0
+                });
+                console.log(`[RL Feedback] Added ${movie.title} to Watched List & Activity Feed`);
+            } catch (err) {
+                console.error('[RL Feedback] Failed to add to watched list:', err);
+                // Don't fail the whole request, just log
+            }
+
+            return { success: true, message: 'Feedback processed successfully' };
 
         } catch (error) {
             console.error('[RL Feedback] Error:', error);
             throw error;
         }
+    }
+
+    /**
+     * Calculate new user mood vector based on RL feedback
+     * @param U Current User Vector
+     * @param M Movie Vector
+     * @param feedback 1 (Like) or -1 (Dislike)
+     * @param rating Optional rating (1-10)
+     */
+    private static calculateNewVector(U: MoodVector, M: MoodVector, feedback: number, rating?: number): MoodVector {
+        const keys: (keyof MoodVector)[] = [
+            'adrenaline', 'melancholy', 'joy', 'tension', 'intellect',
+            'romance', 'wonder', 'nostalgia', 'darkness', 'inspiration'
+        ];
+
+        const result = { ...U };
+
+        // Logic 1: Calculate Learning Rate (Alpha)
+        // If rating exists: (Rating / 10) * 0.5. Example: 10/10 -> 0.5 alpha. 6/10 -> 0.3 alpha.
+        // Default: 0.15 (Small nudge)
+        let alpha = 0.15;
+        if (rating && rating > 0) {
+            alpha = (rating / 10) * 0.5;
+        }
+
+        keys.forEach(key => {
+            const uVal = U[key];
+            const mVal = M[key];
+
+            if (feedback === 1) {
+                // Scenario A: LIKE -> Pull User towards Movie
+                // Formula: U_new = (U_old * (1 - alpha)) + (M * alpha)
+                result[key] = Math.round((uVal * (1 - alpha)) + (mVal * alpha));
+            } else {
+                // Scenario B: DISLIKE -> Push User AWAY from Movie
+                // Formula: U_new = U_old - (M * 0.1)
+                // We use a fixed small push (0.1) for dislikes to avoid erratic jumps
+                const pushFactor = 0.1;
+                const change = mVal * pushFactor;
+                result[key] = Math.round(Math.max(0, Math.min(100, uVal - change)));
+            }
+        });
+
+        return result;
     }
 
     /**
@@ -1424,10 +1517,11 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
                 throw new Error('User not found');
             }
 
-            // Check and reset quota if new month
+            // Check and reset quota if 365+ days have passed (Annual Reset)
             const now = new Date();
             const lastReset = user.recommendationQuota?.lastResetDate || new Date(0);
-            if (now.getMonth() !== lastReset.getMonth() || now.getFullYear() !== lastReset.getFullYear()) {
+            const daysSinceReset = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60 * 24);
+            if (daysSinceReset >= 365) {
                 user.recommendationQuota = { remaining: 3, lastResetDate: now };
                 await user.save();
             }

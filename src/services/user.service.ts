@@ -37,6 +37,11 @@ interface UserProfileResponse {
   recentActivities: any[];
   reviewCount: number;
   isFollowedByMe?: boolean;
+  recommendationQuota?: {
+    remaining: number;
+    total: number;
+    lastResetDate: Date;
+  };
 }
 
 export class UserService {
@@ -62,7 +67,10 @@ export class UserService {
     }
 
     // Get recent activities (last 10)
-    const recentActivities = await Activity.find({ userId: user._id })
+    const recentActivities = await Activity.find({
+      userId: user._id,
+      type: { $ne: 'bulk_import' }
+    })
       .select('-comments -likes')
       .sort({ createdAt: -1 })
       .limit(10)
@@ -107,7 +115,12 @@ export class UserService {
       recentActivities,
       reviewCount,
       isFollowedByMe,
-      mastery: GamificationService.getLevelInfo(user.mastery.score)
+      mastery: GamificationService.getLevelInfo(user.mastery.score),
+      recommendationQuota: {
+        remaining: user.recommendationQuota?.remaining ?? 3,
+        total: 3,
+        lastResetDate: user.recommendationQuota?.lastResetDate ?? new Date()
+      }
     };
 
     if (lang) {
@@ -173,7 +186,10 @@ export class UserService {
       console.error('Failed to update user stats:', error);
     }
 
-    const recentActivities = await Activity.find({ userId: user._id })
+    const recentActivities = await Activity.find({
+      userId: user._id,
+      type: { $ne: 'bulk_import' }
+    })
       .select('-comments -likes')
       .sort({ createdAt: -1 })
       .limit(10)
@@ -205,7 +221,12 @@ export class UserService {
       },
       recentActivities,
       reviewCount,
-      mastery: GamificationService.getLevelInfo(user.mastery.score)
+      mastery: GamificationService.getLevelInfo(user.mastery.score),
+      recommendationQuota: {
+        remaining: user.recommendationQuota?.remaining ?? 3,
+        total: 3,
+        lastResetDate: user.recommendationQuota?.lastResetDate ?? new Date()
+      }
     };
 
     if (lang) {
