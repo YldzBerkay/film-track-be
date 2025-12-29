@@ -1,4 +1,5 @@
 import { Activity, IActivity } from '../models/activity.model';
+import { Comment } from '../models/comment.model';
 import { User } from '../models/user.model';
 import { MoodService } from './mood.service';
 
@@ -109,26 +110,130 @@ export class ActivityService {
 
   static async getUserActivities(userId: string, filterStr: string = 'ALL', page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
-    let query: any = { userId };
 
-    // Handle Filters
+    // COMMENTS filter: Query Comment collection directly
+    if (filterStr === 'COMMENTS') {
+      const comments = await Comment.find({ userId })
+        .populate('userId', 'username name mastery')
+        .populate({
+          path: 'activityId',
+          select: 'mediaTitle mediaPosterPath tmdbId mediaType type'
+        })
+        .populate('parentId', 'text userId')
+        .populate('replyToUser', 'username name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+
+      const total = await Comment.countDocuments({ userId });
+
+      // Transform comments into virtual activity objects
+      const virtualActivities = comments.map((comment: any) => ({
+        _id: comment._id,
+        type: 'comment',
+        userId: comment.userId,
+        mediaTitle: comment.activityId?.mediaTitle || 'Unknown',
+        mediaPosterPath: comment.activityId?.mediaPosterPath || null,
+        tmdbId: comment.activityId?.tmdbId,
+        mediaType: comment.activityId?.mediaType,
+        originalActivityType: comment.activityId?.type,
+        commentText: comment.text,
+        parentId: comment.parentId?._id || null,
+        parentCommentText: comment.parentId?.text || null,
+        replyToUser: comment.replyToUser || null,
+        createdAt: comment.createdAt,
+        likesCount: comment.likesCount || 0,
+        dislikesCount: comment.dislikesCount || 0
+      }));
+
+      return {
+        activities: virtualActivities,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          pages: Math.ceil(total / Number(limit))
+        }
+      };
+    }
+
+    // ALL filter: Merge activities and comments
+    if (filterStr === 'ALL') {
+      // Get activities (reviews, ratings, imports)
+      const activitiesPromise = Activity.find({
+        userId,
+        type: { $in: ['review', 'rating', 'bulk_import'] }
+      })
+        .populate('userId', 'username name mastery')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      // Get comments
+      const commentsPromise = Comment.find({ userId })
+        .populate('userId', 'username name mastery')
+        .populate({
+          path: 'activityId',
+          select: 'mediaTitle mediaPosterPath tmdbId mediaType type'
+        })
+        .populate('parentId', 'text userId')
+        .populate('replyToUser', 'username name')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      const [activities, comments] = await Promise.all([activitiesPromise, commentsPromise]);
+
+      // Transform comments into virtual activities
+      const virtualComments = comments.map((comment: any) => ({
+        _id: comment._id,
+        type: 'comment',
+        userId: comment.userId,
+        mediaTitle: comment.activityId?.mediaTitle || 'Unknown',
+        mediaPosterPath: comment.activityId?.mediaPosterPath || null,
+        tmdbId: comment.activityId?.tmdbId,
+        mediaType: comment.activityId?.mediaType,
+        originalActivityType: comment.activityId?.type,
+        commentText: comment.text,
+        parentId: comment.parentId?._id || null,
+        parentCommentText: comment.parentId?.text || null,
+        replyToUser: comment.replyToUser || null,
+        createdAt: comment.createdAt,
+        likesCount: comment.likesCount || 0,
+        dislikesCount: comment.dislikesCount || 0
+      }));
+
+      // Merge and sort by createdAt
+      const merged = [...activities, ...virtualComments].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      // Paginate the merged result
+      const paginatedResult = merged.slice(skip, skip + limit);
+      const total = merged.length;
+
+      return {
+        activities: paginatedResult,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          pages: Math.ceil(total / Number(limit))
+        }
+      };
+    }
+
+    // Other filters (REVIEWS, RATINGS, IMPORTS)
+    let query: any = { userId };
     if (filterStr === 'REVIEWS') {
       query.type = 'review';
     } else if (filterStr === 'RATINGS') {
       query.type = 'rating';
     } else if (filterStr === 'IMPORTS') {
       query.type = 'bulk_import';
-    } else if (filterStr === 'COMMENTS') {
-      // Special case: Find activities where the user has commented
-      // We overwrite the userId filter because we want activities (possibly by others) 
-      // where THIS user commented.
-      delete query.userId; // Remove "activity owner" constraint
-      query['comments.userId'] = userId;
     }
 
     const activities = await Activity.find(query)
       .populate('userId', 'username name mastery')
-      .populate('comments.userId', 'username name') // Populate comment authors
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -136,38 +241,8 @@ export class ActivityService {
 
     const total = await Activity.countDocuments(query);
 
-    // Transformation for 'COMMENTS' filter
-    // If we are filtering comments, we probably want to return the COMMENT itself as the main item,
-    // or return the activity but indicating it's because of a comment.
-    // The requirement says "Return only type === 'COMMENT'".
-    // We can map the result to a "virtual" activity type 'COMMENT' for the frontend.
-
-    let processedActivities: any[] = activities;
-
-    if (filterStr === 'COMMENTS') {
-      processedActivities = activities.flatMap(activity => {
-        // Find the comments by this user
-        const userComments = activity.comments?.filter((c: any) => c.userId._id.toString() === userId || c.userId.toString() === userId) || [];
-
-        // Create a virtual activity for each comment
-        return userComments.map((comment: any) => ({
-          ...activity,
-          _id: comment._id || activity._id, // Use comment ID if available or fallback
-          type: 'comment', // Virtual type
-          originalActivityType: activity.type,
-          commentText: comment.text,
-          commentCreatedAt: comment.createdAt,
-          createdAt: comment.createdAt // Use comment time for sorting in feed logic if needed
-        }));
-      });
-
-      // Since we did client-side expansion (flatMap), we need to re-slice for pagination if we want precise control,
-      // but simplistic approach: standard pagination on PARENTS is usually acceptable, 
-      // or we accept that one page might result in >20 items if user commented multiple times on same post.
-    }
-
     return {
-      activities: processedActivities,
+      activities,
       pagination: {
         page: Number(page),
         limit: Number(limit),

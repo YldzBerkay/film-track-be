@@ -92,6 +92,27 @@ export class ActivityController {
       next(error);
     }
   }
+
+  static async getProfileActivities(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.params;
+      const { page = 1, limit = 20, filter = 'ALL' } = req.query;
+
+      const activities = await ActivityService.getUserActivities(
+        userId,
+        filter as string,
+        Number(page),
+        Number(limit)
+      );
+
+      res.status(200).json({
+        success: true,
+        data: activities
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
   static async likeActivity(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const userId = req.user?.id;

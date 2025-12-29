@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { UserController } from '../controllers/user.controller';
+import { ActivityController } from '../controllers/activity.controller';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.middleware';
 import { upload } from '../middleware/upload.middleware';
 
@@ -22,6 +23,9 @@ router.get('/:userId/following', UserController.getFollowing);
 router.post('/:userId/follow', authMiddleware, UserController.followUser);
 router.delete('/:userId/follow', authMiddleware, UserController.unfollowUser);
 router.delete('/:userId/follower', authMiddleware, UserController.removeFollower);
+
+// Get user activities (public)
+router.get('/:userId/activities', optionalAuthMiddleware, ActivityController.getProfileActivities);
 
 // Public route with optional auth - get profile by username
 router.get('/:username', optionalAuthMiddleware, UserController.getProfile);
