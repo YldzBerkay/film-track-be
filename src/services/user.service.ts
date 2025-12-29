@@ -34,7 +34,7 @@ interface UserProfileResponse {
     canChangeUsernameAt: Date | null;
     createdAt: Date;
   };
-  recentActivities: any[];
+
   reviewCount: number;
   isFollowedByMe?: boolean;
   recommendationQuota?: {
@@ -65,16 +65,6 @@ export class UserService {
       console.error('Failed to update user stats:', error);
       // Continue without failing the request, using existing stats
     }
-
-    // Get recent activities (last 10)
-    const recentActivities = await Activity.find({
-      userId: user._id,
-      type: { $ne: 'bulk_import' }
-    })
-      .select('-comments -likes')
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .lean();
 
     // Count reviews
     const reviewCount = await Activity.countDocuments({
@@ -112,7 +102,7 @@ export class UserService {
           : null,
         createdAt: user.createdAt
       },
-      recentActivities,
+
       reviewCount,
       isFollowedByMe,
       mastery: GamificationService.getLevelInfo(user.mastery.score),
@@ -186,14 +176,7 @@ export class UserService {
       console.error('Failed to update user stats:', error);
     }
 
-    const recentActivities = await Activity.find({
-      userId: user._id,
-      type: { $ne: 'bulk_import' }
-    })
-      .select('-comments -likes')
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .lean();
+
 
     const reviewCount = await Activity.countDocuments({
       userId: user._id,
@@ -219,7 +202,7 @@ export class UserService {
           : null,
         createdAt: user.createdAt
       },
-      recentActivities,
+
       reviewCount,
       mastery: GamificationService.getLevelInfo(user.mastery.score),
       recommendationQuota: {
