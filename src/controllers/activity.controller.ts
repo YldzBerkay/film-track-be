@@ -280,5 +280,22 @@ export class ActivityController {
       next(error);
     }
   }
+
+  static async getUserLikedActivities(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId } = req.params;
+      const { page = 1, limit = 20 } = req.query;
+
+      const result = await ActivityService.getUserLikedActivities(
+        userId,
+        Number(page),
+        Number(limit)
+      );
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 

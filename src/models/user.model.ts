@@ -54,6 +54,18 @@ export interface IUser extends Document {
     level: number;
     title: string;
   };
+  moodProfile: {
+    adrenaline: number;
+    melancholy: number;
+    joy: number;
+    tension: number;
+    intellect: number;
+    romance: number;
+    wonder: number;
+    nostalgia: number;
+    darkness: number;
+    inspiration: number;
+  };
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -227,6 +239,18 @@ const userSchema = new Schema<IUser>(
         type: String,
         default: 'Acemi İzleyici'
       }
+    },
+    moodProfile: {
+      adrenaline: { type: Number, default: 50 },
+      melancholy: { type: Number, default: 50 },
+      joy: { type: Number, default: 50 },
+      tension: { type: Number, default: 50 },
+      intellect: { type: Number, default: 50 },
+      romance: { type: Number, default: 50 },
+      wonder: { type: Number, default: 50 },
+      nostalgia: { type: Number, default: 50 },
+      darkness: { type: Number, default: 50 },
+      inspiration: { type: Number, default: 50 }
     }
   },
   {

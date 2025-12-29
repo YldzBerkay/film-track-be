@@ -51,6 +51,23 @@ export class ActivityService {
     return activity;
   }
 
+  static async createSystemActivity(userId: string, title: string, text: string): Promise<IActivity> {
+    const activity = new Activity({
+      userId,
+      type: 'system',
+      mediaType: 'movie', // Placeholder
+      tmdbId: 0, // Placeholder
+      mediaTitle: title,
+      reviewText: text,
+      isSpoiler: false,
+      isMoodPick: false,
+      genres: []
+    });
+
+    await activity.save();
+    return activity;
+  }
+
   static async getFeed(query: FeedQuery) {
     const { userId, feedType = 'following', page = 1, limit = 20 } = query;
     const skip = (page - 1) * limit;
@@ -467,7 +484,34 @@ export class ActivityService {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  }
+
+  /**
+   * Get all activities liked by a specific user
+   */
+  static async getUserLikedActivities(userId: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+
+    // Find activities where the user's ID is in the likes array
+    const activities = await Activity.find({ likes: userId })
+      .populate('userId', 'username name mastery avatar')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Activity.countDocuments({ likes: userId });
+
+    return {
+      activities,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
       }
     };
   }

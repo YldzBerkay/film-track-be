@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Activity } from '../models/activity.model';
 import { Comment } from '../models/comment.model';
 import { GamificationService } from '../services/gamification.service';
+import { RateLimiterService } from '../services/rate-limiter.service';
 import mongoose from 'mongoose';
 
 export class InteractionController {
@@ -13,6 +14,17 @@ export class InteractionController {
             // reactionType: 'like' | 'dislike'
 
             const userId = (req as any).user.id;
+
+            // Rate limit check: 3 actions per 3 minutes per user+content
+            if (!RateLimiterService.checkLimit(userId, targetId)) {
+                const remainingTime = RateLimiterService.getRemainingTime(userId, targetId);
+                return res.status(429).json({
+                    success: false,
+                    message: `Too many attempts. Try again in ${remainingTime} seconds.`,
+                    retryAfter: remainingTime
+                });
+            }
+
             const userObjectId = new mongoose.Types.ObjectId(userId);
 
             let Model;

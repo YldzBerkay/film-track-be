@@ -4,6 +4,7 @@ import { Activity } from '../models/activity.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { Notification } from '../models/notification.model';
 import { User } from '../models/user.model';
+import { RateLimiterService } from '../services/rate-limiter.service';
 import mongoose from 'mongoose';
 
 export class CommentController {
@@ -99,6 +100,17 @@ export class CommentController {
 
             if (!activityId || !text) {
                 res.status(400).json({ success: false, message: 'Activity ID and text are required' });
+                return;
+            }
+
+            // Anti-spam checks: global limit, thread limit, duplicate guard
+            try {
+                await RateLimiterService.checkCommentLimit(userId, activityId, text);
+            } catch (rateLimitError: any) {
+                res.status(rateLimitError.statusCode || 429).json({
+                    success: false,
+                    message: rateLimitError.message
+                });
                 return;
             }
 

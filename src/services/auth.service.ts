@@ -2,6 +2,7 @@ import { User, IUser } from '../models/user.model';
 import { RefreshToken } from '../models/refresh-token.model';
 import { WatchlistService } from './watchlist.service';
 import { WatchedListService } from './watched-list.service';
+import { ActivityService } from './activity.service'; // Import ActivityService
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
@@ -49,6 +50,7 @@ export class AuthService {
     }
 
     // Create new user
+    // MoodProfile and defaults are handled by Schema defaults
     const user = new User({
       username: data.username,
       email: data.email,
@@ -60,6 +62,14 @@ export class AuthService {
     // Create default lists for the new user
     await WatchlistService.createDefaultWatchlist(user._id.toString());
     await WatchedListService.createDefaultWatchedList(user._id.toString());
+
+    // Create Welcome Activity
+    try {
+      await ActivityService.createSystemActivity(user._id.toString(), 'USER_JOINED', 'Welcome to the community!');
+    } catch (e) {
+      console.error('Failed to create welcome activity', e);
+      // Continue even if welcome activity fails
+    }
 
     // Generate tokens
     const accessToken = this.generateAccessToken(user._id.toString());

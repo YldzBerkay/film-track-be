@@ -21,4 +21,7 @@ router.post('/:id/like', protect, ActivityController.likeActivity);
 router.post('/:id/unlike', protect, ActivityController.unlikeActivity);
 router.post('/:id/comments', protect, ActivityController.commentOnActivity);
 
+// User likes route (must be before /:id for specific paths)
+router.get('/user/:userId/likes', protect, ActivityController.getUserLikedActivities);
+
 export default router;
