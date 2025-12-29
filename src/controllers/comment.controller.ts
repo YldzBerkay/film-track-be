@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { Comment } from '../models/comment.model';
 import { Activity } from '../models/activity.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { Notification } from '../models/notification.model';
+import { User } from '../models/user.model';
 import mongoose from 'mongoose';
 
 export class CommentController {
@@ -143,7 +145,62 @@ export class CommentController {
             }
 
             // Increment Activity comment count
-            await Activity.findByIdAndUpdate(activityId, { $inc: { commentCount: 1 } });
+            const activity = await Activity.findByIdAndUpdate(activityId, { $inc: { commentCount: 1 } });
+
+            // --- Notification Logic ---
+            if (activity) {
+                const sender = await User.findById(userId).select('username name avatar');
+
+                if (sender) {
+                    const notificationData: any = {
+                        userId: null as any, // Placeholder
+                        type: 'comment',
+                        message: '',
+                        fromUser: {
+                            id: sender._id,
+                            username: sender.username,
+                            name: sender.name
+                        },
+                        data: {
+                            activityId: activity._id,
+                            commentId: comment._id,
+                            mediaTitle: activity.mediaTitle || 'post'
+                        }
+                    };
+
+                    let shouldNotify = false;
+
+                    if (effectiveReplyToUser) {
+                        // This is a reply
+                        if (effectiveReplyToUser.toString() !== userId) {
+                            notificationData.userId = effectiveReplyToUser;
+                            notificationData.message = `@${sender.username} yorumunuza yanıt verdi`;
+                            shouldNotify = true;
+                        }
+                    } else if (activity.userId.toString() !== userId) {
+                        // Top level comment on someone's activity
+                        notificationData.userId = activity.userId;
+                        notificationData.message = `@${sender.username} gönderinize yorum yaptı`;
+                        shouldNotify = true;
+                    }
+
+                    if (shouldNotify) {
+                        try {
+                            const notification = await Notification.create(notificationData);
+
+                            // Emit socket event using SocketService singleton
+                            // We use dynamic import or ensure imports are correct
+                            const { socketService } = await import('../services/socket.service');
+
+                            socketService.emitToUser(notificationData.userId.toString(), 'notification', notification);
+                            console.log(`[Notification] Emitted to user ${notificationData.userId}`);
+
+                        } catch (err) {
+                            console.error('Failed to create notification', err);
+                        }
+                    }
+                }
+            }
 
             res.status(201).json({
                 success: true,

@@ -2,12 +2,15 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user.model';
 
+import { Server } from 'socket.io';
+
 export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
     username: string;
   };
+  io?: Server;
 }
 
 export const authMiddleware = async (
