@@ -1,5 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcrypt';
+import { SubscriptionTier } from './subscription.types';
 
 export interface IUser extends Document {
   username: string;
@@ -11,6 +12,11 @@ export interface IUser extends Document {
   password: string;
   profileSettings: {
     privacy: 'public' | 'private';
+  };
+  subscription: {
+    tier: SubscriptionTier;
+    startedAt: Date;
+    expiresAt: Date | null;
   };
   stats: {
     moviesWatched: number;
@@ -56,6 +62,7 @@ export interface IUser extends Document {
     title: string;
   };
   moodProfile: {
+
     adrenaline: number;
     melancholy: number;
     joy: number;
@@ -243,6 +250,21 @@ const userSchema = new Schema<IUser>(
       title: {
         type: String,
         default: 'Acemi İzleyici'
+      }
+    },
+    subscription: {
+      tier: {
+        type: String,
+        enum: Object.values(SubscriptionTier),
+        default: SubscriptionTier.FREE
+      },
+      startedAt: {
+        type: Date,
+        default: Date.now
+      },
+      expiresAt: {
+        type: Date,
+        default: null
       }
     },
     moodProfile: {
