@@ -545,6 +545,11 @@ export class WatchedListService {
         const topGenres = genreRatings.slice(0, 5);
         const bottomGenres = genreRatings.slice(-5).reverse();
 
+        // Sort ratings by watchedAt (newest first) and limit to 10 for display
+        const recentRatings = ratings
+            .sort((a, b) => new Date(b.watchedAt).getTime() - new Date(a.watchedAt).getTime())
+            .slice(0, 10);
+
         return {
             totalEpisodes,
             totalSeasons,
@@ -561,7 +566,7 @@ export class WatchedListService {
             },
             totalRatingCount: ratedItems.length,
             averageRating: avgRating,
-            ratings
+            ratings: recentRatings
         };
     }
 }

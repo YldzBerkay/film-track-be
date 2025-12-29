@@ -109,6 +109,16 @@ export class MoodController {
       const days = parseInt(req.query.days as string) || 30;
       const timeline = await MoodService.getMoodTimeline(userId, days);
 
+      // Check minimum active days restriction (must have data for at least 3 days)
+      if (timeline.length < 3) {
+        res.status(200).json({ // Returning 200 with success: false is common in this API style
+          success: false,
+          error: 'NOT_ENOUGH_DATA',
+          message: 'At least 3 days of mood data is required to view the timeline'
+        });
+        return;
+      }
+
       res.status(200).json({
         success: true,
         data: timeline
