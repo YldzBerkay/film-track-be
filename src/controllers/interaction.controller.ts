@@ -99,7 +99,8 @@ export class InteractionController {
                 // const isAddingDislike = reactionType === 'dislike' && !isDisliked;
 
                 if (isAddingLike) {
-                    message = `@${(req as any).user.username} liked your ${targetType}`;
+                    // Localized message with username prefix
+                    message = `@${(req as any).user.username} gönderinizi beğendi`;
                     notifyType = 'like';
                 }
                 // Optionally handle dislike notification? Maybe silent.
@@ -127,14 +128,8 @@ export class InteractionController {
                             }
                         });
 
-                        socketService.emitToUser(item.userId.toString(), 'notification', {
-                            id: notification._id,
-                            type: notifyType,
-                            message,
-                            fromUser: notification.fromUser,
-                            createdAt: notification.createdAt,
-                            data: notification.data
-                        });
+                        console.log(`[Notification] Emitting like to user ${item.userId}`);
+                        socketService.emitToUser(item.userId.toString(), 'notification', notification);
                     } catch (notifError) {
                         console.error('Failed to send notification:', notifError);
                     }
