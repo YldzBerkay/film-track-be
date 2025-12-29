@@ -22,7 +22,7 @@ export class CommentController {
                 activityId,
                 rootId: null // Only top-level
             })
-                .populate('userId', 'username name avatar')
+                .populate('userId', 'username name avatar mastery')
                 .populate('replyToUser', 'username name') // Just in case, though top level usually doesn't have it
                 .sort({ createdAt: -1 }) // Newest first
                 .skip(skip)
@@ -59,7 +59,7 @@ export class CommentController {
 
             // We fetch all comments where rootId is this ID
             const replies = await Comment.find({ rootId: id })
-                .populate('userId', 'username name avatar')
+                .populate('userId', 'username name avatar mastery')
                 .populate('replyToUser', 'username name')
                 .sort({ createdAt: 1 }) // Oldest first (chronological conversation)
                 .skip(skip)
@@ -137,7 +137,7 @@ export class CommentController {
             });
 
             await comment.save();
-            await comment.populate('userId', 'username name avatar');
+            await comment.populate('userId', 'username name avatar mastery');
             if (comment.replyToUser) {
                 await comment.populate('replyToUser', 'username name');
             }

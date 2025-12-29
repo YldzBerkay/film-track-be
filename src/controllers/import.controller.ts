@@ -4,6 +4,7 @@ import { Readable } from 'stream';
 const csvParser = require('csv-parser');
 import { AuthRequest } from '../middleware/auth.middleware';
 import { TMDBService, TMDBMovie, TMDBTvShow, TMDBMovieDetails, TMDBTvShowDetails } from '../services/tmdb.service';
+import { GamificationService } from '../services/gamification.service';
 import { WatchedListService } from '../services/watched-list.service';
 import { AIService } from '../services/ai.service';
 import { WatchedList } from '../models/watched-list.model';
@@ -261,7 +262,10 @@ export class ImportController {
             await processWithConcurrency(rows, 5, processRow);
 
             // Create single summary activity if any items were imported
-            if (importedCount > 0) {
+            // Create single summary activity if any items were imported (newly added)
+            const totalNewItems = movieCount + tvCount;
+
+            if (totalNewItems > 0) {
                 const messageParts: string[] = [];
                 if (movieCount > 0) {
                     messageParts.push(`${movieCount} movie${movieCount > 1 ? 's' : ''}`);
@@ -279,6 +283,12 @@ export class ImportController {
                     mediaPosterPath: null,
                     createdAt: new Date()
                 });
+            }
+
+            // Gamification: +1 XP per imported item (max 100 per batch)
+            if (totalNewItems > 0) {
+                const xpEarned = Math.min(totalNewItems, 100);
+                await GamificationService.updateMastery(userId, xpEarned);
             }
 
             // Calculate estimated processing time (1.5 sec per item for AI analysis)

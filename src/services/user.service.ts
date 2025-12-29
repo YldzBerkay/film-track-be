@@ -62,6 +62,7 @@ export class UserService {
 
     // Get recent activities (last 10)
     const recentActivities = await Activity.find({ userId: user._id })
+      .select('-comments -likes')
       .sort({ createdAt: -1 })
       .limit(10)
       .lean();
@@ -171,6 +172,7 @@ export class UserService {
     }
 
     const recentActivities = await Activity.find({ userId: user._id })
+      .select('-comments -likes')
       .sort({ createdAt: -1 })
       .limit(10)
       .lean();

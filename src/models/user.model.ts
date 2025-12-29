@@ -48,6 +48,11 @@ export interface IUser extends Document {
     lastResetDate: Date;
   };
   blacklistedMovies: number[]; // Array of TMDB IDs
+  mastery: {
+    score: number;
+    level: number;
+    title: string;
+  };
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -203,7 +208,21 @@ const userSchema = new Schema<IUser>(
     },
     blacklistedMovies: [{
       type: Number
-    }]
+    }],
+    mastery: {
+      score: {
+        type: Number,
+        default: 0
+      },
+      level: {
+        type: Number,
+        default: 1
+      },
+      title: {
+        type: String,
+        default: 'Acemi İzleyici'
+      }
+    }
   },
   {
     timestamps: true

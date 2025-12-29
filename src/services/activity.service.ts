@@ -88,7 +88,7 @@ export class ActivityService {
     }
 
     const activities = await Activity.find(filter)
-      .populate('userId', 'username name')
+      .populate('userId', 'username name mastery')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)

@@ -9,6 +9,9 @@ export interface IComment extends Document {
     replyToUser?: mongoose.Types.ObjectId;    // User being replied to (for deep replies)
     replyCount: number;                       // Count of direct children (or subtree?) Instagram usually shows total replies. Let's say total replies for root, direct for others? Or just direct? Request said "Cached count of direct children".
     likes: mongoose.Types.ObjectId[];
+    dislikes: mongoose.Types.ObjectId[];
+    likesCount: number;
+    dislikesCount: number;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -52,7 +55,19 @@ const commentSchema = new Schema<IComment>(
         likes: [{
             type: Schema.Types.ObjectId,
             ref: 'User'
-        }]
+        }],
+        dislikes: [{
+            type: Schema.Types.ObjectId,
+            ref: 'User'
+        }],
+        likesCount: {
+            type: Number,
+            default: 0
+        },
+        dislikesCount: {
+            type: Number,
+            default: 0
+        }
     },
     {
         timestamps: true
