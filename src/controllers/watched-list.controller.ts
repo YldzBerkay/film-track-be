@@ -46,7 +46,7 @@ export class WatchedListController {
             const userId = req.user!.id;
             const {
                 tmdbId, mediaType, title, posterPath, runtime,
-                numberOfEpisodes, numberOfSeasons, genres, rating, watchedAt
+                numberOfEpisodes, numberOfSeasons, genres, rating, watchedAt, reviewText
             } = req.body;
 
             if (!tmdbId || !mediaType || !title || runtime === undefined) {
@@ -74,12 +74,13 @@ export class WatchedListController {
             }
 
             const { watchedList, newStreak } = await WatchedListService.addItem(userId, {
-                tmdbId,
+                tmdbId: Number(tmdbId),
                 mediaType,
                 title,
                 posterPath,
                 runtime,
                 rating,
+                reviewText,
                 numberOfEpisodes,
                 numberOfSeasons,
                 genres,
@@ -110,7 +111,7 @@ export class WatchedListController {
         try {
             const userId = req.user!.id;
             const { tmdbId } = req.params;
-            const { mediaType, rating } = req.body;
+            const { mediaType, rating, reviewText } = req.body;
 
             if (!mediaType || !['movie', 'tv'].includes(mediaType)) {
                 res.status(400).json({
@@ -132,7 +133,8 @@ export class WatchedListController {
                 userId,
                 parseInt(tmdbId),
                 mediaType,
-                rating
+                rating,
+                reviewText
             );
 
             if (!watchedList) {

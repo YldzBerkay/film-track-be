@@ -2,6 +2,7 @@ import { WatchedList, IWatchedList, IWatchedItem } from '../models/watched-list.
 import mongoose from 'mongoose';
 import { TMDBService } from './tmdb.service';
 import { User } from '../models/user.model';
+import { ActivityService } from './activity.service';
 
 const DEFAULT_WATCHED_LIST_NAME = 'Watched';
 
@@ -15,6 +16,7 @@ interface AddItemData {
     numberOfSeasons?: number;
     genres?: string[];
     rating?: number;    // Optional: only save if user explicitly provides 1-10
+    reviewText?: string;
     feedback?: 'like' | 'dislike' | null;  // Raw sentiment (decoupled from rating)
     watchedAt?: Date;
 }
@@ -151,6 +153,21 @@ export class WatchedListService {
                 },
                 { new: true }
             );
+
+            // Create activity if rating/review provided
+            if (resultWatchedList && (item.rating || item.reviewText)) {
+                await ActivityService.createActivityForRating({
+                    userId,
+                    type: 'rating',
+                    mediaType: item.mediaType === 'tv' ? 'tv_show' : 'movie',
+                    tmdbId: item.tmdbId,
+                    mediaTitle: item.title,
+                    mediaPosterPath: item.posterPath,
+                    rating: item.rating,
+                    reviewText: item.reviewText,
+                    genres: item.genres
+                });
+            }
         }
 
         // --- Daily Pick Streak Logic ---
@@ -181,20 +198,21 @@ export class WatchedListService {
     }
 
     /**
-     * Update item rating
-     */
+    * Update item rating
+    */
     static async updateItemRating(
         userId: string,
         tmdbId: number,
         mediaType: 'movie' | 'tv',
-        rating: number
+        rating: number,
+        reviewText?: string
     ): Promise<IWatchedList | null> {
         // Validate rating
         if (rating < 1 || rating > 10 || !Number.isInteger(rating)) {
             throw new Error('Rating must be an integer between 1 and 10');
         }
 
-        return WatchedList.findOneAndUpdate(
+        const updatedList = await WatchedList.findOneAndUpdate(
             {
                 userId: new mongoose.Types.ObjectId(userId),
                 isDefault: true,
@@ -208,6 +226,25 @@ export class WatchedListService {
             },
             { new: true }
         );
+
+        if (updatedList) {
+            const item = updatedList.items.find(i => i.tmdbId === tmdbId && i.mediaType === mediaType);
+            if (item) {
+                // Create or update activity
+                await ActivityService.createActivityForRating({
+                    userId,
+                    type: 'rating', // Will be upgraded to 'review' inside if text exists
+                    mediaType: mediaType === 'tv' ? 'tv_show' : 'movie',
+                    tmdbId,
+                    mediaTitle: item.title,
+                    mediaPosterPath: item.posterPath,
+                    rating,
+                    reviewText
+                });
+            }
+        }
+
+        return updatedList;
     }
 
     /**

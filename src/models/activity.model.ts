@@ -21,6 +21,11 @@ export interface IActivity extends Document {
   likesCount: number;
   dislikesCount: number;
   commentCount: number;
+  comments?: {
+    userId: mongoose.Types.ObjectId;
+    text: string;
+    createdAt: Date;
+  }[];
 }
 
 const activitySchema = new Schema<IActivity>(
@@ -78,7 +83,22 @@ const activitySchema = new Schema<IActivity>(
     commentCount: {
       type: Number,
       default: 0
-    }
+    },
+    comments: [{
+      userId: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+      },
+      text: {
+        type: String,
+        required: true
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now
+      }
+    }]
   },
   {
     timestamps: true

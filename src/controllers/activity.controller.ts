@@ -75,10 +75,11 @@ export class ActivityController {
         return;
       }
 
-      const { page = 1, limit = 20 } = req.query;
+      const { page = 1, limit = 20, filter = 'ALL' } = req.query;
 
       const activities = await ActivityService.getUserActivities(
         userId,
+        filter as string,
         Number(page),
         Number(limit)
       );
@@ -161,6 +162,32 @@ export class ActivityController {
       }
 
       res.status(200).json({ success: true, data: activity });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getMediaActivities(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { mediaType, tmdbId } = req.params;
+      const { page = 1, limit = 20 } = req.query;
+
+      if (!mediaType || !['movie', 'tv'].includes(mediaType)) {
+        res.status(400).json({ success: false, message: 'Invalid mediaType' });
+        return;
+      }
+
+      const activities = await ActivityService.getMediaActivities(
+        mediaType,
+        Number(tmdbId),
+        Number(page),
+        Number(limit)
+      );
+
+      res.status(200).json({
+        success: true,
+        data: activities
+      });
     } catch (error) {
       next(error);
     }

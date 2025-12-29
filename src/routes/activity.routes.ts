@@ -7,6 +7,7 @@ const router = Router();
 router.post('/', protect, ActivityController.createActivity);
 router.get('/feed', protect, ActivityController.getFeed);
 router.get('/user', protect, ActivityController.getUserActivities);
+router.get('/media/:mediaType/:tmdbId', protect, ActivityController.getMediaActivities);
 
 // Social routes
 router.post('/:id/like', protect, ActivityController.likeActivity);
