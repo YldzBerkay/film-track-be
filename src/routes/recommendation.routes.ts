@@ -13,6 +13,7 @@ router.post('/mealtime/friends', authMiddleware, RecommendationController.getFri
 
 // RL Feedback System
 router.post('/feedback', authMiddleware, RecommendationController.submitFeedback);
+router.post('/rl-feedback', authMiddleware, RecommendationController.submitRLFeedback);
 router.get('/replace', authMiddleware, RecommendationController.replaceCard);
 router.get('/quota', authMiddleware, RecommendationController.getQuota);
 

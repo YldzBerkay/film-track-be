@@ -9,6 +9,9 @@ router.get('/feed', protect, ActivityController.getFeed);
 router.get('/user', protect, ActivityController.getUserActivities);
 router.get('/media/:mediaType/:tmdbId', protect, ActivityController.getMediaActivities);
 
+// Single activity
+router.get('/:id', protect, ActivityController.getActivityById);
+
 // Social routes
 router.post('/:id/like', protect, ActivityController.likeActivity);
 router.post('/:id/unlike', protect, ActivityController.unlikeActivity);

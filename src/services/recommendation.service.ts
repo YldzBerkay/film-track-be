@@ -1364,6 +1364,50 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
     }
 
     /**
+     * Process RL feedback with support for detailed metrics (rating, feedback score)
+     * Maps to existing logic for now but extensible for RL rewards
+     */
+    static async processRLFeedback(
+        userId: string,
+        tmdbId: number,
+        mediaType: string,
+        feedback: number,
+        rating: number
+    ): Promise<any> {
+        try {
+            // 1. Fetch title if needed (for consistency with internal logic)
+            let title = 'Unknown Movie';
+            try {
+                // Try to find in DB first
+                const existing = await Movie.findOne({ tmdbId, mediaType });
+                if (existing) {
+                    title = existing.title;
+                } else {
+                    // Fetch from TMDB
+                    // Defaulting to 'en' as we don't have lang context, or 'en-US'
+                    const details = await TMDBService.getMovieDetails(tmdbId.toString(), 'en-US');
+                    title = details.title;
+                }
+            } catch (err) {
+                console.warn(`[RL Feedback] Could not resolve title for TMDB ${tmdbId}`);
+            }
+
+            // 2. Map feedback to action
+            // Feedback: 1 (Like), -1 (Dislike)
+            // Rating: 0-10
+            const action = feedback > 0 ? 'like' : 'dislike';
+
+            // 3. Delegate to existing logic
+            // In future, we can use 'rating' to adjust the influence weight dynamically
+            return await this.processRecommendationFeedback(userId, tmdbId, title, action);
+
+        } catch (error) {
+            console.error('[RL Feedback] Error:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Get a single replacement recommendation (uses quota)
      * Returns new movie or QUOTA_EXCEEDED error
      * @param rejectedTitle Optional: title of the movie the user rejected, for context injection

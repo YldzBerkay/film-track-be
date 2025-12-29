@@ -89,7 +89,7 @@ export class ActivityService {
     }
 
     const activities = await Activity.find(filter)
-      .populate('userId', 'username name mastery')
+      .populate('userId', 'username name mastery avatar')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -114,13 +114,13 @@ export class ActivityService {
     // COMMENTS filter: Query Comment collection directly
     if (filterStr === 'COMMENTS') {
       const comments = await Comment.find({ userId })
-        .populate('userId', 'username name mastery')
+        .populate('userId', 'username name mastery avatar')
         .populate({
           path: 'activityId',
           select: 'mediaTitle mediaPosterPath tmdbId mediaType type'
         })
         .populate('parentId', 'text userId')
-        .populate('replyToUser', 'username name')
+        .populate('replyToUser', 'username name avatar')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -138,6 +138,7 @@ export class ActivityService {
         tmdbId: comment.activityId?.tmdbId,
         mediaType: comment.activityId?.mediaType,
         originalActivityType: comment.activityId?.type,
+        activityId: comment.activityId,
         commentText: comment.text,
         parentId: comment.parentId?._id || null,
         parentCommentText: comment.parentId?.text || null,
@@ -165,19 +166,19 @@ export class ActivityService {
         userId,
         type: { $in: ['review', 'rating', 'bulk_import'] }
       })
-        .populate('userId', 'username name mastery')
+        .populate('userId', 'username name mastery avatar')
         .sort({ createdAt: -1 })
         .lean();
 
       // Get comments
       const commentsPromise = Comment.find({ userId })
-        .populate('userId', 'username name mastery')
+        .populate('userId', 'username name mastery avatar')
         .populate({
           path: 'activityId',
           select: 'mediaTitle mediaPosterPath tmdbId mediaType type'
         })
         .populate('parentId', 'text userId')
-        .populate('replyToUser', 'username name')
+        .populate('replyToUser', 'username name avatar')
         .sort({ createdAt: -1 })
         .lean();
 
@@ -193,6 +194,7 @@ export class ActivityService {
         tmdbId: comment.activityId?.tmdbId,
         mediaType: comment.activityId?.mediaType,
         originalActivityType: comment.activityId?.type,
+        activityId: comment.activityId, // Added activityId
         commentText: comment.text,
         parentId: comment.parentId?._id || null,
         parentCommentText: comment.parentId?.text || null,
@@ -233,7 +235,7 @@ export class ActivityService {
     }
 
     const activities = await Activity.find(query)
-      .populate('userId', 'username name mastery')
+      .populate('userId', 'username name mastery avatar')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -352,21 +354,40 @@ export class ActivityService {
   }
 
   static async addComment(activityId: string, userId: string, text: string): Promise<IActivity | null> {
+    // 1. Create Comment document (for Profile and Notifications)
+    const { Comment } = await import('../models/comment.model'); // Dynamic import
+
+    const comment = await Comment.create({
+      text,
+      userId,
+      activityId,
+      createdAt: new Date()
+    });
+
+    // 2. Update Activity (embedded comments for Feed performance)
     return Activity.findByIdAndUpdate(
       activityId,
       {
         $push: {
           comments: {
+            _id: comment._id, // Sync ID
             userId,
             text,
-            createdAt: new Date()
+            createdAt: comment.createdAt
           }
-        }
+        },
+        $inc: { commentCount: 1 } // Increment count - Use $inc for atomicity
       },
       { new: true }
     )
       .populate('userId', 'username name')
       .populate('comments.userId', 'username name');
+  }
+
+  static async getActivityById(activityId: string) {
+    return Activity.findById(activityId)
+      .populate('userId', 'username name mastery')
+      .lean();
   }
 }
 

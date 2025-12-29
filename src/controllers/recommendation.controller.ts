@@ -257,6 +257,49 @@ export class RecommendationController {
     }
 
     /**
+     * POST /api/recommendations/rl-feedback
+     * Advanced feedback processing (Reinforcement Learning signal)
+     */
+    static async submitRLFeedback(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user?.id;
+            if (!userId) {
+                return res.status(401).json({ message: 'Unauthorized' });
+            }
+
+            // tmdbId, mediaType, feedback, rating
+            const { tmdbId, mediaType, feedback, rating } = req.body;
+
+            if (!tmdbId || !mediaType || feedback === undefined) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'tmdbId, mediaType, and feedback are required'
+                });
+            }
+
+            const result = await RecommendationService.processRLFeedback(
+                userId,
+                Number(tmdbId),
+                mediaType,
+                Number(feedback),
+                Number(rating || 0)
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'RL Geri dönüşü alındı.'
+            });
+
+        } catch (error) {
+            console.error('Error processing RL feedback:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to process RL feedback.'
+            });
+        }
+    }
+
+    /**
      * GET /api/recommendations/replace
      * Get a single replacement recommendation (uses quota)
      */

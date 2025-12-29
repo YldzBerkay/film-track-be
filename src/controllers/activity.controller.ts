@@ -113,6 +113,27 @@ export class ActivityController {
       next(error);
     }
   }
+
+  static async getActivityById(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const activity = await ActivityService.getActivityById(id);
+
+      if (!activity) {
+        res.status(404).json({ success: false, message: 'Activity not found' });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        data: activity
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async likeActivity(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const userId = req.user?.id;
