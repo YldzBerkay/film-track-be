@@ -130,6 +130,10 @@ export class TMDBService {
       }
 
       const response = await this.client.get('/search/movie', { params });
+      // Sort by popularity as TMDB search sorts by relevance
+      if (response.data && response.data.results) {
+        response.data.results.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0));
+      }
       return response.data;
     } catch (error) {
       console.error('TMDb Search Error:', error);
@@ -249,6 +253,10 @@ export class TMDBService {
           ...this.getLanguageParams(lang)
         }
       });
+      // Sort by popularity as TMDB search sorts by relevance
+      if (response.data && response.data.results) {
+        response.data.results.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0));
+      }
       return response.data;
     } catch (error) {
       console.error('TMDb TV Search Error:', error);
@@ -277,6 +285,10 @@ export class TMDBService {
           ...this.getLanguageParams(lang)
         }
       });
+      // Sort by popularity as TMDB search sorts by relevance
+      if (response.data && response.data.results) {
+        response.data.results.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0));
+      }
       return response.data;
     } catch (error) {
       console.error('TMDb Person Search Error:', error);

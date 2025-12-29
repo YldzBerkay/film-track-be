@@ -19,7 +19,15 @@ export class TMDBController {
 
       res.status(200).json({
         success: true,
-        data: results
+        data: {
+          results: results.results,
+          pagination: {
+            page: results.page,
+            limit: 20,
+            total: results.total_results,
+            pages: results.total_pages
+          }
+        }
       });
     } catch (error) {
       next(error);
@@ -43,7 +51,15 @@ export class TMDBController {
 
       res.status(200).json({
         success: true,
-        data: results
+        data: {
+          results: results.results,
+          pagination: {
+            page: results.page,
+            limit: 20,
+            total: results.total_results,
+            pages: results.total_pages
+          }
+        }
       });
     } catch (error) {
       next(error);
@@ -67,7 +83,15 @@ export class TMDBController {
 
       res.status(200).json({
         success: true,
-        data: results
+        data: {
+          results: results.results,
+          pagination: {
+            page: results.page,
+            limit: 20,
+            total: results.total_results,
+            pages: results.total_pages
+          }
+        }
       });
     } catch (error) {
       next(error);
@@ -81,7 +105,15 @@ export class TMDBController {
 
       res.status(200).json({
         success: true,
-        data: results
+        data: {
+          results: results.results,
+          pagination: {
+            page: results.page,
+            limit: 20,
+            total: results.total_results,
+            pages: results.total_pages
+          }
+        }
       });
     } catch (error) {
       next(error);
@@ -95,7 +127,15 @@ export class TMDBController {
 
       res.status(200).json({
         success: true,
-        data: results
+        data: {
+          results: results.results,
+          pagination: {
+            page: results.page,
+            limit: 20,
+            total: results.total_results,
+            pages: results.total_pages
+          }
+        }
       });
     } catch (error) {
       next(error);
