@@ -234,5 +234,51 @@ export class ActivityController {
       next(error);
     }
   }
+
+  static async bookmarkActivity(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const { id } = req.params;
+
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const result = await ActivityService.toggleBookmark(id, userId);
+
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Activity not found' });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getSavedActivities(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { page = 1, limit = 20 } = req.query;
+
+      const result = await ActivityService.getSavedActivities(
+        userId,
+        Number(page),
+        Number(limit)
+      );
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 

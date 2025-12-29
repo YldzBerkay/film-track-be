@@ -48,6 +48,7 @@ export interface IUser extends Document {
     lastResetDate: Date;
   };
   blacklistedMovies: number[]; // Array of TMDB IDs
+  savedActivities: mongoose.Types.ObjectId[]; // Bookmarked activities
   mastery: {
     score: number;
     level: number;
@@ -208,6 +209,10 @@ const userSchema = new Schema<IUser>(
     },
     blacklistedMovies: [{
       type: Number
+    }],
+    savedActivities: [{
+      type: Schema.Types.ObjectId,
+      ref: 'Activity'
     }],
     mastery: {
       score: {

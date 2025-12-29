@@ -395,5 +395,81 @@ export class ActivityService {
       .populate('userId', 'username name mastery')
       .lean();
   }
+
+  /**
+   * Toggle bookmark (save/unsave) an activity for a user
+   */
+  static async toggleBookmark(activityId: string, userId: string): Promise<{ bookmarked: boolean } | null> {
+    // Check if activity exists
+    const activity = await Activity.findById(activityId);
+    if (!activity) {
+      return null;
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return null;
+    }
+
+    const savedActivities = user.savedActivities || [];
+    const isCurrentlySaved = savedActivities.some(id => id.toString() === activityId);
+
+    if (isCurrentlySaved) {
+      // Remove from saved
+      await User.findByIdAndUpdate(userId, {
+        $pull: { savedActivities: activityId }
+      });
+      return { bookmarked: false };
+    } else {
+      // Add to saved
+      await User.findByIdAndUpdate(userId, {
+        $addToSet: { savedActivities: activityId }
+      });
+      return { bookmarked: true };
+    }
+  }
+
+  /**
+   * Get all saved/bookmarked activities for a user
+   */
+  static async getSavedActivities(userId: string, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+
+    const user = await User.findById(userId)
+      .select('savedActivities')
+      .lean();
+
+    if (!user || !user.savedActivities || user.savedActivities.length === 0) {
+      return {
+        activities: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0
+        }
+      };
+    }
+
+    const total = user.savedActivities.length;
+
+    // Get the saved activities with pagination
+    const activityIds = user.savedActivities.slice(skip, skip + limit);
+
+    const activities = await Activity.find({ _id: { $in: activityIds } })
+      .populate('userId', 'username name mastery avatar')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return {
+      activities,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
+  }
 }
 
