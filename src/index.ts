@@ -5,6 +5,7 @@ import { config } from './config/env';
 import { connectDatabase } from './config/database';
 import { errorHandler } from './middleware/error-handler';
 import routes from './routes';
+import subscriptionRoutes from './routes/subscription.routes';
 import { socketService } from './services/socket.service';
 
 const app = express();
@@ -35,6 +36,7 @@ app.get('/health', (req: Request, res: Response) => {
 
 // API Routes (aggregated)
 app.use('/api', routes);
+app.use('/api/subscription', subscriptionRoutes);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
