@@ -9,9 +9,9 @@ export class InteractionController {
 
     static async toggleReaction(req: Request, res: Response) {
         try {
-            const { targetId, targetType, reactionType } = req.body;
+            const { targetId, targetType, action } = req.body;
             // targetType: 'activity' | 'comment'
-            // reactionType: 'like' | 'dislike'
+            // action: 'like' | 'dislike' | 'none' (force state)
 
             const userId = (req as any).user.id;
 
@@ -36,41 +36,46 @@ export class InteractionController {
             if (!item) return res.status(404).json({ success: false, message: 'Item not found' });
 
             // Check current state
-            const isLiked = item.likes.includes(userObjectId);
-            const isDisliked = item.dislikes.includes(userObjectId);
+            const wasLiked = item.likes.includes(userObjectId);
+            const wasDisliked = item.dislikes.includes(userObjectId);
 
             let xpDelta = 0;
+            let notifyType: 'like' | null = null;
+            let notificationMessage = '';
 
-            if (reactionType === 'like') {
-                if (isLiked) {
-                    // Remove Like
-                    item.likes.pull(userObjectId);
-                    xpDelta = -10;
-                } else {
-                    // Add Like
+            if (action === 'like') {
+                if (!wasLiked) {
                     item.likes.push(userObjectId);
-                    xpDelta = +10;
-                    if (isDisliked) {
-                        // Switch from Dislike to Like
-                        item.dislikes.pull(userObjectId);
-                        xpDelta += 2; // Recover the -2 penalty
-                    }
+                    xpDelta += 10;
+                    notifyType = 'like';
+                    notificationMessage = `@${(req as any).user.username} gönderinizi beğendi`;
                 }
-            } else if (reactionType === 'dislike') {
-                if (isDisliked) {
-                    // Remove Dislike
+                if (wasDisliked) {
                     item.dislikes.pull(userObjectId);
-                    xpDelta = +2; // Recover penalty
-                } else {
-                    // Add Dislike
-                    item.dislikes.push(userObjectId);
-                    xpDelta = -2;
-                    if (isLiked) {
-                        // Switch from Like to Dislike
-                        item.likes.pull(userObjectId);
-                        xpDelta -= 10; // Remove the +10 gain
-                    }
+                    xpDelta += 2; // Recover penalty
                 }
+            } else if (action === 'dislike') {
+                if (!wasDisliked) {
+                    item.dislikes.push(userObjectId);
+                    xpDelta -= 2;
+                }
+                if (wasLiked) {
+                    item.likes.pull(userObjectId);
+                    xpDelta -= 10;
+                }
+            } else if (action === 'none') {
+                // Remove both
+                if (wasLiked) {
+                    item.likes.pull(userObjectId);
+                    xpDelta -= 10;
+                }
+                if (wasDisliked) {
+                    item.dislikes.pull(userObjectId);
+                    xpDelta += 2;
+                }
+            } else {
+                // Fallback to legacy validation or error
+                return res.status(400).json({ success: false, message: 'Invalid action' });
             }
 
             // Update Counts
@@ -107,8 +112,8 @@ export class InteractionController {
                 // Usually apps notify for Likes, but maybe Dislikes too?
                 // Let's notify for both but usually 'like' is the type.
 
-                const isAddingLike = reactionType === 'like' && !isLiked;
-                // const isAddingDislike = reactionType === 'dislike' && !isDisliked;
+                const isAddingLike = action === 'like' && !wasLiked;
+                // const isAddingDislike = action === 'dislike' && !wasDisliked;
 
                 if (isAddingLike) {
                     // Localized message with username prefix
@@ -153,11 +158,7 @@ export class InteractionController {
                 data: {
                     likesCount: item.likesCount,
                     dislikesCount: item.dislikesCount,
-                    userVote: reactionType === 'like' && !isLiked ? 'like' :
-                        reactionType === 'dislike' && !isDisliked ? 'dislike' : null // If we toggled OFF, it's null
-                    // Logic fix:
-                    // If request 'like' and WAS liked -> result None.
-                    // If request 'like' and WAS NOT liked -> result Like.
+                    userVote: action === 'none' ? null : action
                 }
             });
 

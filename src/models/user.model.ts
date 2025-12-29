@@ -37,6 +37,7 @@ export interface IUser extends Document {
   streak: {
     current: number;
     lastLoginDate: Date | null;
+    hasFreeze?: boolean;
   };
   dailyPick: {
     tmdbId: number | null;
@@ -193,6 +194,10 @@ const userSchema = new Schema<IUser>(
       lastLoginDate: {
         type: Date,
         default: null
+      },
+      hasFreeze: {
+        type: Boolean,
+        default: false
       }
     },
     dailyPick: {

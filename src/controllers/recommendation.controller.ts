@@ -38,6 +38,10 @@ export class RecommendationController {
             const lang = req.query.lang as string | undefined;
             const dailyPick = await RecommendationService.getDailyRandomMovie(userId, lang);
 
+            // Check streak freshness (read-time correction)
+            const { GamificationService } = await import('../services/gamification.service');
+            await GamificationService.checkAndResetStreak(userId);
+
             // Fetch current streak
             const user = await User.findById(userId).select('streak');
             const dailyStreak = user?.streak?.current || 0;

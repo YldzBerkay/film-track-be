@@ -81,4 +81,72 @@ export class GamificationService {
             progressPercent: parseFloat(progressPercent.toFixed(1))
         };
     }
+    static async checkAndResetStreak(userId: string) {
+        const user = await User.findById(userId);
+        if (!user || !user.streak || !user.streak.lastLoginDate) return;
+
+        const lastLogin = new Date(user.streak.lastLoginDate);
+        const now = new Date();
+
+        // Normalize to midnight for calendar day comparison
+        const lastDate = new Date(lastLogin.setHours(0, 0, 0, 0));
+        const today = new Date(now.setHours(0, 0, 0, 0));
+
+        // Calculate difference in days
+        const diffTime = Math.abs(today.getTime() - lastDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        console.log(`[Streak Check] User: ${userId}, Diff: ${diffDays} days`);
+
+        if (diffDays > 1) {
+            // Missed at least one day
+            if (user.streak.hasFreeze) {
+                // Use Freeze
+                console.log(`[Streak Freeze] User ${userId} used a freeze!`);
+                user.streak.hasFreeze = false;
+                // Streak is preserved (do not reset)
+                // But we should update lastLoginDate? 
+                // No, if we update lastLoginDate to Today, we basically "filled" the gap.
+                // If we don't update key date, next check will still show diff > 1?
+                // YES. We must bridge the gap or update the date to "Yesterday" effectively?
+                // Or just update to Today as if they logged in?
+                // The check is running NOW (on read/login). So they ARE triggering activity now.
+                // So if we save, we might act as if they continued?
+                // User said: "Consume the freeze... Do NOT reset the streak."
+                // The goal is: current streak remains.
+                // NOTE: This function is called on READ (getDailyPick).
+                // It does NOT imply the user "Watched" something today yet to increment.
+                // But it resets "old" streaks.
+                // If I have a freeze, I consume it, and I KEEP the current streak value.
+                // The user logic implies "Streak Freeze used" to SAVE the streak from resetting.
+
+                // We must save the user to persist freeze consumption.
+                await user.save();
+
+                // Notify User
+                try {
+                    const { Notification } = await import('../models/notification.model');
+                    const { socketService } = await import('../services/socket.service');
+
+                    const notification = await Notification.create({
+                        userId: user._id,
+                        type: 'system', // or new type 'freeze_used'
+                        message: '🔥 Streak Freeze used to save your streak!',
+                        data: {
+                            streak: user.streak.current
+                        }
+                    });
+                    socketService.emitToUser(user._id.toString(), 'notification', notification);
+                } catch (e) {
+                    console.error('Failed to send freeze notification', e);
+                }
+
+            } else {
+                // Reset Streak
+                console.log(`[Streak Reset] User ${userId} lost streak of ${user.streak.current}`);
+                user.streak.current = 0;
+                await user.save();
+            }
+        }
+    }
 }

@@ -54,25 +54,106 @@ class RateLimiterServiceClass {
      * Check if the user can perform a reaction (like/dislike) action.
      * Returns true if allowed, false if rate limited.
      */
+    /**
+     * Check if the user can perform a reaction (like/dislike) action.
+     * Returns true if allowed, false if rate limited.
+     * Implements Progressive Penalty (Exponential Backoff).
+     */
     checkLimit(userId: string, contentId: string): boolean {
-        return this.checkGenericLimit(
-            `reaction:${userId}_${contentId}`,
-            this.MAX_REACTION_ACTIONS,
-            this.REACTION_WINDOW_MS
-        );
+        const baseKey = `${userId}_${contentId}`;
+        const banKey = `reaction:ban:${baseKey}`;
+        const tierKey = `reaction:tier:${baseKey}`;
+        const countKey = `reaction:count:${baseKey}`;
+
+        const now = Date.now();
+
+        // 1. Check if Blocked (Ban)
+        const banEntry = this.store.get(banKey);
+        if (banEntry && now < banEntry.expiresAt) {
+            return false;
+        } else if (banEntry) {
+            this.store.delete(banKey);
+        }
+
+        // 2. Check Count
+        let countEntry = this.store.get(countKey);
+        // Clean expired count
+        if (countEntry && now > countEntry.expiresAt) {
+            this.store.delete(countKey);
+            countEntry = undefined;
+        }
+
+        if (countEntry) {
+            if (countEntry.count >= this.MAX_REACTION_ACTIONS) {
+                // VIOLATION LIMIT REACHED!
+
+                // Fetch Current Tier
+                let tier = 0;
+                const tierEntry = this.store.get(tierKey);
+                if (tierEntry && now < tierEntry.expiresAt) {
+                    tier = tierEntry.count; // Using 'count' field to store tier level
+                }
+
+                // Calculate Ban Duration
+                // Tier 0: 30s, Tier 1: 5m (300s), Tier 2+: 30m (1800s)
+                let banDurationMs = 30000;
+                if (tier === 1) banDurationMs = 300000;
+                if (tier >= 2) banDurationMs = 1800000;
+
+                // Apply Ban
+                this.store.set(banKey, {
+                    count: 0,
+                    expiresAt: now + banDurationMs
+                });
+
+                // Escalate Tier (Probation: 10 minutes)
+                this.store.set(tierKey, {
+                    count: tier + 1,
+                    expiresAt: now + 600000 // 10 minutes probation
+                });
+
+                // Reset Count (so after ban they start fresh count)
+                this.store.delete(countKey);
+
+                return false;
+            }
+
+            // Increment Count
+            countEntry.count++;
+            return true;
+        } else {
+            // First Action in window
+            this.store.set(countKey, {
+                count: 1,
+                ExpiresAt: now + this.REACTION_WINDOW_MS // Typo fix: expiresAt
+            } as any);
+            // TS fix: creating object manually.
+            this.store.set(countKey, {
+                count: 1,
+                expiresAt: now + this.REACTION_WINDOW_MS
+            });
+            return true;
+        }
     }
 
     /**
      * Get remaining time until reaction rate limit resets (in seconds)
      */
     getRemainingTime(userId: string, contentId: string): number {
-        const key = `reaction:${userId}_${contentId}`;
-        const entry = this.store.get(key);
+        const baseKey = `${userId}_${contentId}`;
+        const banKey = `reaction:ban:${baseKey}`;
 
-        if (!entry) return 0;
+        // Check Ban First
+        const banEntry = this.store.get(banKey);
+        if (banEntry && banEntry.expiresAt > Date.now()) {
+            return Math.ceil((banEntry.expiresAt - Date.now()) / 1000);
+        }
 
-        const remaining = Math.max(0, entry.expiresAt - Date.now());
-        return Math.ceil(remaining / 1000);
+        // Check Count Wait (Optional: if we enforce window wait without ban?)
+        // The original logic just returned window remaining.
+        // But with tiers, usually we care about the Ban time if 429 is triggered.
+        // If not banned, remaining time is 0 (allowed).
+        return 0;
     }
 
     /**
