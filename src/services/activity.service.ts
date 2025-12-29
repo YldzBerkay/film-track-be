@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Activity, IActivity } from '../models/activity.model';
 import { Comment } from '../models/comment.model';
 import { User } from '../models/user.model';
@@ -72,51 +73,298 @@ export class ActivityService {
     const { userId, feedType = 'following', page = 1, limit = 20 } = query;
     const skip = (page - 1) * limit;
 
-    let userIds: string[] = [];
+    // 1. Fetch Requesting User (for Friends/Following logic & Personalization)
+    const user = await User.findById(userId).select('following followers moodProfile');
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // 2. Determine Filter Criteria (Target Users)
+    let matchStage: any = {};
+    let isGlobal = false;
 
     if (feedType === 'following') {
-      // Get following list (will be implemented later)
-      // For now, return user's own activities + following activities
-      const user = await User.findById(userId).select('following');
-      userIds = [userId, ...(user?.following?.map(f => f.toString()) || [])];
-    } else if (feedType === 'friends') {
-      // Get friends list (mutual follows)
-      const user = await User.findById(userId).select('following followers');
+      // Activities from User + Following
+      const followingIds = (user.following || []).map(id => new mongoose.Types.ObjectId(id as any));
+      matchStage = {
+        userId: { $in: [new mongoose.Types.ObjectId(userId), ...followingIds] }
+      };
+    }
+    else if (feedType === 'friends') {
+      // Activities from Mutual Follows + User
+      // "Friends" = Users I follow AND who follow me back
+      const followingIdsStr = (user.following || []).map(id => id.toString());
+      const followerIdsSet = new Set((user.followers || []).map(id => id.toString()));
 
-      if (user && user.following && user.followers) {
-        // Convert ObjectIds to strings for comparison
-        const followingIds = user.following.map(id => id.toString());
-        const followerIds = new Set(user.followers.map(id => id.toString()));
+      const mutualFriendIds = followingIdsStr
+        .filter(id => followerIdsSet.has(id))
+        .map(id => new mongoose.Types.ObjectId(id));
 
-        // Find mutual follows
-        const friendIds = followingIds.filter(id => followerIds.has(id));
+      matchStage = {
+        userId: { $in: [new mongoose.Types.ObjectId(userId), ...mutualFriendIds] }
+      };
+    }
+    else if (feedType === 'global') {
+      isGlobal = true;
+      // Discovery Mode: Exclude User & Following
+      const followingIds = (user.following || []).map(id => new mongoose.Types.ObjectId(id as any));
+      const excludedIds = [new mongoose.Types.ObjectId(userId), ...followingIds];
 
-        // Include user's own activities + friends
-        userIds = [userId, ...friendIds];
-      } else {
-        userIds = [userId];
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      matchStage = {
+        userId: { $nin: excludedIds },
+        createdAt: { $gte: sevenDaysAgo } // Velocity Check: Keep it fresh
+      };
+    }
+    else if (feedType === 'community') {
+      // Placeholder for future community features
+      // matchStage = { communityId: ... }
+      return { activities: [], pagination: { page, limit, total: 0, pages: 0 } };
+    }
+
+    // 3. Define Pipeline Variables
+    // Base Scores: The "Signal" Weight
+    const scoreMap = {
+      review: 50,
+      comment: 30,
+      rating: 10,
+      movie_watched: 5,
+      tv_episode_watched: 5,
+      tv_show_watched: 5,
+      bulk_import: 1,
+      system: 0
+    };
+
+    // Personalization: Get Top 3 Genres from User Mood Profile
+    // (Assuming moodProfile maps somewhat to genres, or we use a placeholder logic if genres aren't direct)
+    // For now, let's assume we map mood keys (e.g., 'adrenaline') to genres (e.g., 'Action').
+    // Since strict genre mapping might be complex, we'll assume the user might have a `favoriteGenres` field or we skip strict genre matching 
+    // and rely on the general "Hot" formula. 
+    // *Correction*: The prompt asked to "Boost score if activity.genres matches user.moodProfile.topGenres".
+    // I entered 'genres' in the `CreateActivityData` interface, so activities have it.
+    // I will extract top 2 moods and map them to standard TMDB genres roughly for the boost.
+
+    // Simple Mapping for demonstration (Expand as needed)
+    const moodGenreMap: Record<string, string[]> = {
+      adrenaline: ['Action', 'Adventure', 'Thriller'],
+      melancholy: ['Drama', 'Tragedy'],
+      joy: ['Comedy', 'Family', 'Animation'],
+      tension: ['Horror', 'Mystery', 'Crime'],
+      intellect: ['Documentary', 'History', 'Science Fiction'],
+      romance: ['Romance'],
+      wonder: ['Fantasy', 'Science Fiction'],
+      nostalgia: ['Classic', 'History'],
+      darkness: ['Horror', 'Crime'],
+      inspiration: ['Biography', 'Documentary', 'Music']
+    };
+
+    // Identify user's top mood
+    let userTopGenres: string[] = [];
+    if (user.moodProfile) {
+      const topMood = Object.entries(user.moodProfile)
+        .sort(([, a], [, b]) => (b as number) - (a as number))[0]; // Get highest mood
+
+      if (topMood) {
+        userTopGenres = moodGenreMap[topMood[0]] || [];
       }
-    } else {
-      // Global feed - all users
-      userIds = [];
     }
 
-    const filter: any = {};
-    if (userIds.length > 0) {
-      filter.userId = { $in: userIds };
-    }
+    // 4. Build Aggregation Pipeline
+    const pipeline: any[] = [
+      // Stage 1: Filter Core Set
+      { $match: matchStage },
 
-    const activities = await Activity.find(filter)
-      .populate('userId', 'username name mastery avatar')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+      // Stage 2: Calculate Scores & Transformation
+      {
+        $addFields: {
+          // 2.1 Calculate Hours Since Creation (Time Decay base)
+          hoursSince: {
+            $divide: [{ $subtract: [new Date(), "$createdAt"] }, 1000 * 60 * 60]
+          },
 
-    const total = await Activity.countDocuments(filter);
+          // 2.2 Assign Base Score
+          baseScore: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$type", "review"] }, then: 50 },
+                { case: { $eq: ["$type", "comment"] }, then: 30 },
+                { case: { $eq: ["$type", "rating"] }, then: 10 },
+                { case: { $eq: ["$type", "movie_watched"] }, then: 5 },
+                { case: { $eq: ["$type", "tv_episode_watched"] }, then: 5 },
+                { case: { $eq: ["$type", "tv_show_watched"] }, then: 5 },
+                { case: { $eq: ["$type", "bulk_import"] }, then: 1 }
+              ],
+              default: 0
+            }
+          },
+
+          // 2.3 Calculate Engagement Score
+          engagementScore: {
+            $add: [
+              { $multiply: [{ $ifNull: ["$likesCount", 0] }, 2] },
+              { $multiply: [{ $ifNull: ["$commentCount", 0] }, 4] }
+            ]
+          },
+
+          // 2.4 Personalization Boost (Global Feed Only)
+          personalizationBoost: isGlobal ? {
+            $cond: {
+              if: { $gt: [{ $size: { $setIntersection: ["$genres", userTopGenres] } }, 0] },
+              then: 20, // Bonus points for genre match
+              else: 0
+            }
+          } : 0
+        }
+      },
+
+      // Stage 3: Calculate Final Ranking Score
+      // Formula: (Base + Engagement + Personalization) / (Hours + 2)^1.5
+      {
+        $addFields: {
+          rankingScore: {
+            $divide: [
+              { $add: ["$baseScore", "$engagementScore", "$personalizationBoost"] },
+              { $pow: [{ $add: ["$hoursSince", 2] }, 1.5] }
+            ]
+          }
+        }
+      },
+
+      // Stage 4: Anti-Spam Grouping (Bulk Imports)
+      // Group contiguous bulk imports by the same user within the same hour
+      {
+        $group: {
+          _id: {
+            // If it's a bulk import, group by User + Hour + Type. 
+            // Otherwise, keep unique ID (no grouping).
+            key: {
+              $cond: {
+                if: { $eq: ["$type", "bulk_import"] },
+                then: {
+                  u: "$userId",
+                  h: { $hour: "$createdAt" },
+                  d: { $dayOfYear: "$createdAt" }, // Include day to avoid hour collisions across days
+                  y: { $year: "$createdAt" },
+                  t: "bulk_import"
+                },
+                else: "$_id"
+              }
+            }
+          },
+          // Accumulate fields
+          doc: { $first: "$$ROOT" }, // Keep the first document as the "Main" one
+          count: { $sum: 1 },         // Count items in this group
+          aggregatedMedia: {
+            // Collect titles for the summary card
+            $push: {
+              title: "$mediaTitle",
+              poster: "$mediaPosterPath",
+              id: "$tmdbId"
+            }
+          }
+        }
+      },
+
+      // Stage 5: Restore Document Structure & Finalize
+      {
+        $addFields: {
+          // If grouped (count > 1), update the document to look like a summary
+          // We override the 'doc' fields with summary info
+          "doc.mediaTitle": {
+            $cond: {
+              if: { $gt: ["$count", 1] },
+              then: { $concat: ["Imported ", { $toString: "$count" }, " titles"] },
+              else: "$doc.mediaTitle"
+            }
+          },
+          // We can attach the list of imported items to a new field if needed
+          "doc.groupedActivities": {
+            $cond: {
+              if: { $gt: ["$count", 1] },
+              then: "$aggregatedMedia",
+              else: "$$REMOVE"
+            }
+          },
+          // Fix ID: Grouping changes _id. Restore original _id for non-grouped, or generate new one.
+          // For simplicity, we keep the doc._id which is the _id of the first item in the group.
+          "_id": "$doc._id",
+          "rankingScore": "$doc.rankingScore", // Keep the score of the representative item
+          "createdAt": "$doc.createdAt"
+        }
+      },
+
+      // Stage 6: Sort by Smart Ranking
+      { $sort: { rankingScore: -1 } },
+
+      // Stage 7: Pagination
+      {
+        $facet: {
+          metadata: [{ $count: "total" }],
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            // Stage 8: Join User Details (Population replacement)
+            {
+              $lookup: {
+                from: "users",
+                localField: "doc.userId",
+                foreignField: "_id",
+                as: "user"
+              }
+            },
+            { $unwind: "$user" }, // Flatten array
+
+            // Join Comments Authors (Nested Lookup is tricky in Aggregation, simplified for now)
+            // We will map the structure to match frontend expectations
+            {
+              $project: {
+                _id: "$doc._id",
+                type: "$doc.type",
+                mediaType: "$doc.mediaType",
+                tmdbId: "$doc.tmdbId",
+                mediaTitle: "$doc.mediaTitle", // This might be "Imported X titles" now
+                mediaPosterPath: "$doc.mediaPosterPath",
+                seasonNumber: "$doc.seasonNumber",
+                episodeNumber: "$doc.episodeNumber",
+                episodeTitle: "$doc.episodeTitle",
+                rating: "$doc.rating",
+                reviewText: "$doc.reviewText",
+                isSpoiler: "$doc.isSpoiler",
+                isMoodPick: "$doc.isMoodPick",
+                genres: "$doc.genres",
+                createdAt: "$doc.createdAt",
+                updatedAt: "$doc.updatedAt",
+                likes: "$doc.likes",
+                likesCount: "$doc.likesCount",
+                dislikesCount: "$doc.dislikesCount",
+                commentCount: "$doc.commentCount",
+                groupedActivities: "$doc.groupedActivities", // Pass the grouped list
+                userId: {
+                  _id: "$user._id",
+                  username: "$user.username",
+                  name: "$user.name",
+                  avatar: "$user.avatar",
+                  mastery: "$user.mastery"
+                },
+                rankingScore: 1, // Debug info
+                // Map legacy fields if necessary
+              }
+            }
+          ]
+        }
+      }
+    ];
+
+    const result = await Activity.aggregate(pipeline);
+
+    // Format Result
+    const data = result[0].data;
+    const total = result[0].metadata[0] ? result[0].metadata[0].total : 0;
 
     return {
-      activities,
+      activities: data,
       pagination: {
         page: Number(page),
         limit: Number(limit),
