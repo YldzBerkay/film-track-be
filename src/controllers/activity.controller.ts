@@ -91,5 +91,79 @@ export class ActivityController {
       next(error);
     }
   }
+  static async likeActivity(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const { id } = req.params;
+
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const activity = await ActivityService.likeActivity(id, userId);
+
+      if (!activity) {
+        res.status(404).json({ success: false, message: 'Activity not found' });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: activity });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async unlikeActivity(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const { id } = req.params;
+
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const activity = await ActivityService.unlikeActivity(id, userId);
+
+      if (!activity) {
+        res.status(404).json({ success: false, message: 'Activity not found' });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: activity });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async commentOnActivity(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const { id } = req.params;
+      const { text } = req.body;
+
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      if (!text || !text.trim()) {
+        res.status(400).json({ success: false, message: 'Comment text is required' });
+        return;
+      }
+
+      const activity = await ActivityService.addComment(id, userId, text);
+
+      if (!activity) {
+        res.status(404).json({ success: false, message: 'Activity not found' });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: activity });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 

@@ -16,6 +16,8 @@ export interface IActivity extends Document {
   genres?: string[];
   createdAt: Date;
   updatedAt: Date;
+  likes: mongoose.Types.ObjectId[];
+  commentCount: number;
 }
 
 const activitySchema = new Schema<IActivity>(
@@ -47,17 +49,21 @@ const activitySchema = new Schema<IActivity>(
     seasonNumber: Number,
     episodeNumber: Number,
     episodeTitle: String,
-    rating: {
-      type: Number,
-      min: 1,
-      max: 5
-    },
+    rating: Number,
     reviewText: String,
     isSpoiler: {
       type: Boolean,
       default: false
     },
-    genres: [String]
+    genres: [String],
+    likes: [{
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    }],
+    commentCount: {
+      type: Number,
+      default: 0
+    }
   },
   {
     timestamps: true

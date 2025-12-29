@@ -111,6 +111,7 @@ export class ActivityService {
     const skip = (page - 1) * limit;
 
     const activities = await Activity.find({ userId })
+      .populate('userId', 'username name')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -127,6 +128,40 @@ export class ActivityService {
         totalPages: Math.ceil(total / limit)
       }
     };
+  }
+
+  static async likeActivity(activityId: string, userId: string): Promise<IActivity | null> {
+    return Activity.findByIdAndUpdate(
+      activityId,
+      { $addToSet: { likes: userId } },
+      { new: true }
+    ).populate('userId', 'username name');
+  }
+
+  static async unlikeActivity(activityId: string, userId: string): Promise<IActivity | null> {
+    return Activity.findByIdAndUpdate(
+      activityId,
+      { $pull: { likes: userId } },
+      { new: true }
+    ).populate('userId', 'username name');
+  }
+
+  static async addComment(activityId: string, userId: string, text: string): Promise<IActivity | null> {
+    return Activity.findByIdAndUpdate(
+      activityId,
+      {
+        $push: {
+          comments: {
+            userId,
+            text,
+            createdAt: new Date()
+          }
+        }
+      },
+      { new: true }
+    )
+      .populate('userId', 'username name')
+      .populate('comments.userId', 'username name');
   }
 }
 

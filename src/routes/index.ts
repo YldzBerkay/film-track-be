@@ -15,6 +15,7 @@ import watchedListRoutes from './watched-list.routes';
 import episodeRatingRoutes from './episode-rating.routes';
 import seasonRatingRoutes from './season-rating.routes';
 import importRoutes from './import.routes';
+import commentRoutes from './comment.routes';
 
 const router = Router();
 
@@ -23,6 +24,7 @@ router.use('/auth', authRoutes);
 router.use('/favorites', favoritesRoutes);
 router.use('/tmdb', tmdbRoutes);
 router.use('/activities', activityRoutes);
+router.use('/comments', commentRoutes); // New route
 router.use('/users', userRoutes);
 router.use('/mood', moodRoutes);
 router.use('/recommendations', recommendationRoutes);
