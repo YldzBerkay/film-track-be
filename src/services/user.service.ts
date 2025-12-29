@@ -1,5 +1,6 @@
 import { User, IUser } from '../models/user.model';
 import { Activity } from '../models/activity.model';
+import { GamificationService } from './gamification.service';
 import sharp from 'sharp';
 
 interface UserProfileResponse {
@@ -105,7 +106,8 @@ export class UserService {
       },
       recentActivities,
       reviewCount,
-      isFollowedByMe
+      isFollowedByMe,
+      mastery: GamificationService.getLevelInfo(user.mastery.score)
     };
 
     if (lang) {
@@ -202,7 +204,8 @@ export class UserService {
         createdAt: user.createdAt
       },
       recentActivities,
-      reviewCount
+      reviewCount,
+      mastery: GamificationService.getLevelInfo(user.mastery.score)
     };
 
     if (lang) {

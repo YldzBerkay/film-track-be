@@ -371,9 +371,22 @@ export class WatchedListController {
             const userId = req.user!.id;
             const stats = await WatchedListService.getDetailedStats(userId);
 
+            // Get Mastery Data
+            const { User } = await import('../models/user.model');
+            const { GamificationService } = await import('../services/gamification.service');
+            const user = await User.findById(userId).select('mastery');
+
+            let mastery = null;
+            if (user && user.mastery) {
+                mastery = GamificationService.getLevelInfo(user.mastery.score);
+            }
+
             res.json({
                 success: true,
-                data: stats
+                data: {
+                    ...stats,
+                    mastery
+                }
             });
         } catch (error) {
             console.error('Get detailed stats error:', error);

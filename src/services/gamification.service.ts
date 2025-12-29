@@ -43,17 +43,42 @@ export class GamificationService {
     }
 
     static getLevelInfo(score: number) {
-        // Helper to frontend if needed
+        let currentLevel = this.LEVELS[0];
+        let nextLevel = null;
+
+        // Find current and next level
         for (let i = this.LEVELS.length - 1; i >= 0; i--) {
             if (score >= this.LEVELS[i].threshold) {
-                const nextLevel = this.LEVELS[i + 1];
-                return {
-                    current: this.LEVELS[i],
-                    next: nextLevel || null,
-                    progress: nextLevel ? (score - this.LEVELS[i].threshold) / (nextLevel.threshold - this.LEVELS[i].threshold) : 1
-                };
+                currentLevel = this.LEVELS[i];
+                nextLevel = this.LEVELS[i + 1] || null;
+                break;
             }
         }
-        return null;
+
+        let progressPercent = 0;
+        let scoreToNextLevel = 0;
+        let nextLevelScore = 0;
+
+        if (nextLevel) {
+            const range = nextLevel.threshold - currentLevel.threshold;
+            const progress = score - currentLevel.threshold;
+            progressPercent = Math.min(100, Math.max(0, (progress / range) * 100));
+            scoreToNextLevel = nextLevel.threshold - score;
+            nextLevelScore = nextLevel.threshold;
+        } else {
+            // Max level reached
+            progressPercent = 100;
+            scoreToNextLevel = 0;
+            nextLevelScore = currentLevel.threshold;
+        }
+
+        return {
+            level: currentLevel.level,
+            title: currentLevel.title,
+            score,
+            nextLevelScore,
+            scoreToNextLevel,
+            progressPercent: parseFloat(progressPercent.toFixed(1))
+        };
     }
 }
