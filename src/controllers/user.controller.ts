@@ -209,5 +209,27 @@ export class UserController {
       });
     }
   }
+
+  static async deleteAccount(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      await UserService.deleteAccount(userId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Account deleted successfully'
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to delete account'
+      });
+    }
+  }
 }
 

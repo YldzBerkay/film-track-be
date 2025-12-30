@@ -646,5 +646,59 @@ export class UserService {
 
     return { success: true, message: 'Profile updated successfully' };
   }
+
+  /**
+   * Permanently delete user account and all associated data
+   */
+  static async deleteAccount(userId: string): Promise<{ success: boolean; message: string }> {
+    const mongoose = await import('mongoose');
+    const { Comment } = await import('../models/comment.model');
+    const { Watchlist } = await import('../models/watchlist.model');
+    const { WatchedList } = await import('../models/watched-list.model');
+    const { UserStats } = await import('../models/user-stats.model');
+
+    const session = await mongoose.default.startSession();
+    session.startTransaction();
+
+    try {
+      // 1. Delete Primary Data
+      await User.findByIdAndDelete(userId).session(session);
+      await UserStats.findOneAndDelete({ userId }).session(session);
+
+      // 2. Cascade Delete Content
+      await Activity.deleteMany({ userId }).session(session);
+      await Comment.deleteMany({ userId }).session(session);
+      await Watchlist.deleteMany({ userId }).session(session);
+      await WatchedList.findOneAndDelete({ userId }).session(session);
+
+      // 3. Clean Up References
+      // Remove from followers/following of other users
+      await User.updateMany(
+        {},
+        { $pull: { followers: userId, following: userId } }
+      ).session(session);
+
+      // Remove from likes/dislikes on Activities
+      await Activity.updateMany(
+        {},
+        { $pull: { likes: userId, dislikes: userId } }
+      ).session(session);
+
+      // Remove from likes/dislikes on Comments
+      await Comment.updateMany(
+        {},
+        { $pull: { likes: userId, dislikes: userId } }
+      ).session(session);
+
+      await session.commitTransaction();
+      return { success: true, message: 'Account permanently deleted' };
+    } catch (error) {
+      await session.abortTransaction();
+      console.error('Account deletion failed:', error);
+      throw error;
+    } finally {
+      session.endSession();
+    }
+  }
 }
 
