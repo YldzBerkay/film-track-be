@@ -1,268 +1,161 @@
+import { redisService } from './redis.service';
+
 /**
- * Rate Limiter Service
- * 
- * Implements in-memory rate limiting for interaction endpoints.
- * 
- * Reaction Limits: 3 actions per 3 minutes per user+content pair.
- * Comment Limits:
- *   - Global: 5 comments per minute (flood protection)
- *   - Thread: 3 comments per 2 minutes per activity (harassment protection)
- *   - Duplicate: Cannot post exact same text twice in a row
- * 
- * Frontend debouncing handles accidental clicks; this is the backend fallback.
+ * Rate Limiter Service using Redis
+ * Implements sliding window rate limiting for API protection
  */
+export class RateLimiterService {
+    private readonly prefix = 'ratelimit:';
 
-import { Comment } from '../models/comment.model';
+    /**
+     * Check and consume a rate limit token
+     * @param identifier - Unique identifier (IP, userId, API key)
+     * @param limit - Maximum requests allowed
+     * @param windowSeconds - Time window in seconds
+     * @returns Object with allowed status and remaining count
+     */
+    async consume(
+        identifier: string,
+        limit: number = 100,
+        windowSeconds: number = 60
+    ): Promise<{ allowed: boolean; remaining: number; retryAfter?: number }> {
+        const key = `${this.prefix}${identifier}`;
 
-interface RateLimitEntry {
-    count: number;
-    expiresAt: number;
-}
+        // Increment counter
+        const current = await redisService.incr(key);
 
-interface RateLimitError extends Error {
-    statusCode: number;
-}
+        // Set expiry on first request
+        if (current === 1) {
+            await redisService.expire(key, windowSeconds);
+        }
 
-function createRateLimitError(message: string, statusCode: number = 429): RateLimitError {
-    const error = new Error(message) as RateLimitError;
-    error.statusCode = statusCode;
-    return error;
-}
+        const remaining = Math.max(0, limit - current);
+        const allowed = current <= limit;
 
-class RateLimiterServiceClass {
-    private store = new Map<string, RateLimitEntry>();
+        if (!allowed) {
+            const ttl = await redisService.ttl(key);
+            return { allowed, remaining: 0, retryAfter: ttl };
+        }
 
-    // Configuration for reactions
-    private readonly MAX_REACTION_ACTIONS = 3;
-    private readonly REACTION_WINDOW_MS = 180000; // 3 minutes
-
-    // Configuration for comments
-    private readonly MAX_GLOBAL_COMMENTS = 5;
-    private readonly GLOBAL_COMMENT_WINDOW_MS = 60000; // 1 minute
-    private readonly MAX_THREAD_COMMENTS = 3;
-    private readonly THREAD_COMMENT_WINDOW_MS = 120000; // 2 minutes
-
-    // Cleanup interval (run every 5 minutes to clear expired entries)
-    private cleanupInterval: NodeJS.Timeout | null = null;
-
-    constructor() {
-        // Start cleanup interval
-        this.cleanupInterval = setInterval(() => this.cleanup(), 300000);
+        return { allowed, remaining };
     }
 
     /**
-     * Check if the user can perform a reaction (like/dislike) action.
-     * Returns true if allowed, false if rate limited.
+     * Reset rate limit for an identifier
      */
-    /**
-     * Check if the user can perform a reaction (like/dislike) action.
-     * Returns true if allowed, false if rate limited.
-     * Implements Progressive Penalty (Exponential Backoff).
-     */
-    checkLimit(userId: string, contentId: string): boolean {
-        const baseKey = `${userId}_${contentId}`;
-        const banKey = `reaction:ban:${baseKey}`;
-        const tierKey = `reaction:tier:${baseKey}`;
-        const countKey = `reaction:count:${baseKey}`;
+    async reset(identifier: string): Promise<void> {
+        const key = `${this.prefix}${identifier}`;
+        await redisService.del(key);
+    }
 
+    /**
+     * Get current rate limit status without consuming
+     */
+    async getStatus(
+        identifier: string,
+        limit: number = 100
+    ): Promise<{ current: number; remaining: number; ttl: number }> {
+        const key = `${this.prefix}${identifier}`;
+        const currentStr = await redisService.get(key);
+        const current = currentStr ? parseInt(currentStr, 10) : 0;
+        const ttl = await redisService.ttl(key);
+
+        return {
+            current,
+            remaining: Math.max(0, limit - current),
+            ttl: Math.max(0, ttl)
+        };
+    }
+
+    // ==========================================
+    // LEGACY STATIC METHODS (For Existing Code)
+    // ==========================================
+    private static memoryStore = new Map<string, { count: number; firstAttempt: number }>();
+    private static readonly WINDOW_MS = 180000; // 3 minutes
+    private static readonly MAX_ATTEMPTS = 3;
+
+    /**
+     * Legacy: Check rate limit (in-memory fallback)
+     */
+    static checkLimit(userId: string, targetId: string): boolean {
+        const key = `${userId}:${targetId}`;
         const now = Date.now();
+        const record = this.memoryStore.get(key);
 
-        // 1. Check if Blocked (Ban)
-        const banEntry = this.store.get(banKey);
-        if (banEntry && now < banEntry.expiresAt) {
-            return false;
-        } else if (banEntry) {
-            this.store.delete(banKey);
-        }
-
-        // 2. Check Count
-        let countEntry = this.store.get(countKey);
-        // Clean expired count
-        if (countEntry && now > countEntry.expiresAt) {
-            this.store.delete(countKey);
-            countEntry = undefined;
-        }
-
-        if (countEntry) {
-            if (countEntry.count >= this.MAX_REACTION_ACTIONS) {
-                // VIOLATION LIMIT REACHED!
-
-                // Fetch Current Tier
-                let tier = 0;
-                const tierEntry = this.store.get(tierKey);
-                if (tierEntry && now < tierEntry.expiresAt) {
-                    tier = tierEntry.count; // Using 'count' field to store tier level
-                }
-
-                // Calculate Ban Duration
-                // Tier 0: 30s, Tier 1: 5m (300s), Tier 2+: 30m (1800s)
-                let banDurationMs = 30000;
-                if (tier === 1) banDurationMs = 300000;
-                if (tier >= 2) banDurationMs = 1800000;
-
-                // Apply Ban
-                this.store.set(banKey, {
-                    count: 0,
-                    expiresAt: now + banDurationMs
-                });
-
-                // Escalate Tier (Probation: 10 minutes)
-                this.store.set(tierKey, {
-                    count: tier + 1,
-                    expiresAt: now + 600000 // 10 minutes probation
-                });
-
-                // Reset Count (so after ban they start fresh count)
-                this.store.delete(countKey);
-
-                return false;
-            }
-
-            // Increment Count
-            countEntry.count++;
-            return true;
-        } else {
-            // First Action in window
-            this.store.set(countKey, {
-                count: 1,
-                ExpiresAt: now + this.REACTION_WINDOW_MS // Typo fix: expiresAt
-            } as any);
-            // TS fix: creating object manually.
-            this.store.set(countKey, {
-                count: 1,
-                expiresAt: now + this.REACTION_WINDOW_MS
-            });
+        if (!record) {
+            this.memoryStore.set(key, { count: 1, firstAttempt: now });
             return true;
         }
+
+        if (now - record.firstAttempt > this.WINDOW_MS) {
+            this.memoryStore.set(key, { count: 1, firstAttempt: now });
+            return true;
+        }
+
+        if (record.count < this.MAX_ATTEMPTS) {
+            record.count++;
+            return true;
+        }
+
+        return false;
     }
 
     /**
-     * Get remaining time until reaction rate limit resets (in seconds)
+     * Legacy: Get remaining time in seconds
      */
-    getRemainingTime(userId: string, contentId: string): number {
-        const baseKey = `${userId}_${contentId}`;
-        const banKey = `reaction:ban:${baseKey}`;
+    static getRemainingTime(userId: string, targetId: string): number {
+        const key = `${userId}:${targetId}`;
+        const record = this.memoryStore.get(key);
 
-        // Check Ban First
-        const banEntry = this.store.get(banKey);
-        if (banEntry && banEntry.expiresAt > Date.now()) {
-            return Math.ceil((banEntry.expiresAt - Date.now()) / 1000);
-        }
+        if (!record) return 0;
 
-        // Check Count Wait (Optional: if we enforce window wait without ban?)
-        // The original logic just returned window remaining.
-        // But with tiers, usually we care about the Ban time if 429 is triggered.
-        // If not banned, remaining time is 0 (allowed).
-        return 0;
+        const elapsed = Date.now() - record.firstAttempt;
+        const remaining = Math.ceil((this.WINDOW_MS - elapsed) / 1000);
+        return Math.max(0, remaining);
     }
 
     /**
-     * Check all comment limits (global, thread, duplicate)
-     * Throws an error with statusCode if blocked
+     * Legacy: Check comment rate limit with global, thread, and duplicate protection
      */
-    async checkCommentLimit(userId: string, activityId: string, content: string): Promise<void> {
-        // Step 1: Global Flood Check - Max 5 comments per minute
+    static async checkCommentLimit(userId: string, activityId: string, text: string): Promise<void> {
+        // Global: max 5 comments per minute
         const globalKey = `comment:global:${userId}`;
-        if (!this.checkGenericLimit(globalKey, this.MAX_GLOBAL_COMMENTS, this.GLOBAL_COMMENT_WINDOW_MS)) {
-            const remaining = this.getGenericRemainingTime(globalKey);
-            throw createRateLimitError(`You're commenting too fast. Please wait ${remaining} seconds.`, 429);
-        }
-
-        // Step 2: Thread Flood Check - Max 3 comments per 2 minutes per activity
-        const threadKey = `comment:thread:${userId}:${activityId}`;
-        if (!this.checkGenericLimit(threadKey, this.MAX_THREAD_COMMENTS, this.THREAD_COMMENT_WINDOW_MS)) {
-            const remaining = this.getGenericRemainingTime(threadKey);
-            throw createRateLimitError(`Take a break from this post. Try again in ${remaining} seconds.`, 429);
-        }
-
-        // Step 3: Duplicate Content Check
-        const trimmedContent = content.trim().toLowerCase();
-        const lastComment = await Comment.findOne({ userId })
-            .sort({ createdAt: -1 })
-            .select('text')
-            .lean();
-
-        if (lastComment && lastComment.text.trim().toLowerCase() === trimmedContent) {
-            throw createRateLimitError(`You already said that. Try something different.`, 400);
-        }
-    }
-
-    /**
-     * Generic limit check (reusable for different limit types)
-     */
-    private checkGenericLimit(key: string, maxActions: number, windowMs: number): boolean {
+        let globalRecord = this.memoryStore.get(globalKey);
         const now = Date.now();
-        const entry = this.store.get(key);
 
-        // If entry exists and expired, reset it
-        if (entry && now > entry.expiresAt) {
-            this.store.delete(key);
-        }
-
-        const currentEntry = this.store.get(key);
-
-        if (currentEntry) {
-            // Entry exists and not expired
-            if (currentEntry.count >= maxActions) {
-                // Rate limited - blocked
-                return false;
+        if (globalRecord && now - globalRecord.firstAttempt < 60000) {
+            if (globalRecord.count >= 5) {
+                const remaining = Math.ceil((60000 - (now - globalRecord.firstAttempt)) / 1000);
+                throw { statusCode: 429, message: `Too many comments. Wait ${remaining}s.` };
             }
-
-            // Increment count
-            currentEntry.count++;
-            return true;
+            globalRecord.count++;
         } else {
-            // First action - create new entry
-            this.store.set(key, {
-                count: 1,
-                expiresAt: now + windowMs
-            });
-            return true;
+            this.memoryStore.set(globalKey, { count: 1, firstAttempt: now });
         }
-    }
 
-    /**
-     * Get remaining time for a generic key
-     */
-    private getGenericRemainingTime(key: string): number {
-        const entry = this.store.get(key);
+        // Thread: max 3 per activity per 2 minutes
+        const threadKey = `comment:thread:${userId}:${activityId}`;
+        let threadRecord = this.memoryStore.get(threadKey);
 
-        if (!entry) return 0;
-
-        const remaining = Math.max(0, entry.expiresAt - Date.now());
-        return Math.ceil(remaining / 1000);
-    }
-
-    /**
-     * Cleanup expired entries to prevent memory leaks
-     */
-    private cleanup(): void {
-        const now = Date.now();
-        let cleaned = 0;
-
-        for (const [key, entry] of this.store.entries()) {
-            if (now > entry.expiresAt) {
-                this.store.delete(key);
-                cleaned++;
+        if (threadRecord && now - threadRecord.firstAttempt < 120000) {
+            if (threadRecord.count >= 3) {
+                const remaining = Math.ceil((120000 - (now - threadRecord.firstAttempt)) / 1000);
+                throw { statusCode: 429, message: `Too many comments on this post. Wait ${remaining}s.` };
             }
+            threadRecord.count++;
+        } else {
+            this.memoryStore.set(threadKey, { count: 1, firstAttempt: now });
         }
 
-        if (cleaned > 0) {
-            console.log(`[RateLimiter] Cleaned up ${cleaned} expired entries`);
+        // Duplicate check: same text within 5 minutes
+        const dupeKey = `comment:dupe:${userId}:${text.slice(0, 50)}`;
+        if (this.memoryStore.has(dupeKey)) {
+            throw { statusCode: 429, message: 'Duplicate comment detected.' };
         }
-    }
-
-    /**
-     * Shutdown cleanup (for graceful shutdown)
-     */
-    shutdown(): void {
-        if (this.cleanupInterval) {
-            clearInterval(this.cleanupInterval);
-            this.cleanupInterval = null;
-        }
-        this.store.clear();
+        this.memoryStore.set(dupeKey, { count: 1, firstAttempt: now });
+        setTimeout(() => this.memoryStore.delete(dupeKey), 300000);
     }
 }
 
-// Export singleton instance
-export const RateLimiterService = new RateLimiterServiceClass();
+// Export singleton
+export const rateLimiterService = new RateLimiterService();

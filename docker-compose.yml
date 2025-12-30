@@ -1,0 +1,59 @@
+# Redis Infrastructure for CineTrack Backend
+# Production-ready with persistence, authentication, and GUI
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Redis - Primary Data Store
+  # ============================================
+  redis:
+    image: redis:alpine
+    container_name: cinetrack-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-cinetrack_redis_secret}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-cinetrack_redis_secret}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - cinetrack-network
+
+  # ============================================
+  # Redis Commander - Web GUI for Redis
+  # ============================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: cinetrack-redis-gui
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD:-cinetrack_redis_secret}
+      - HTTP_USER=${REDIS_GUI_USER:-admin}
+      - HTTP_PASSWORD=${REDIS_GUI_PASSWORD:-admin123}
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - cinetrack-network
+
+networks:
+  cinetrack-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
