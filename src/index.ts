@@ -7,12 +7,14 @@ import { errorHandler } from './middleware/error-handler';
 import routes from './routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import { socketService } from './services/socket.service';
+import { TvTrackerService } from './services/tv-tracker.service';
 
 const app = express();
 const httpServer = createServer(app);
 
-// Initialize Socket.io
+// Initialize Services
 socketService.initialize(httpServer);
+TvTrackerService.initialize();
 
 // Middleware
 app.use(cors());

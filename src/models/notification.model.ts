@@ -2,7 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface INotification extends Document {
     userId: mongoose.Types.ObjectId;
-    type: 'follow' | 'like' | 'comment' | 'mention';
+    type: 'follow' | 'like' | 'comment' | 'mention' | 'new_episode';
     message: string;
     fromUser: {
         id: mongoose.Types.ObjectId;
@@ -24,7 +24,7 @@ const notificationSchema = new Schema<INotification>(
         },
         type: {
             type: String,
-            enum: ['follow', 'like', 'comment', 'mention'],
+            enum: ['follow', 'like', 'comment', 'mention', 'new_episode'],
             required: true
         },
         message: {
