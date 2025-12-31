@@ -183,6 +183,35 @@ export class UserController {
     }
   }
 
+  static async updatePrivacy(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { mood, library, activity, stats } = req.body;
+
+      // Basic validation
+      const validTiers = ['public', 'friends', 'private'];
+      const settings: any = {};
+      if (mood && validTiers.includes(mood)) settings.mood = mood;
+      if (library && validTiers.includes(library)) settings.library = library;
+      if (activity && validTiers.includes(activity)) settings.activity = activity;
+      if (stats && validTiers.includes(stats)) settings.stats = stats;
+
+      const result = await UserService.updatePrivacySettings(userId, settings);
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to update privacy settings'
+      });
+    }
+  }
+
   static async updateProfile(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const userId = req.user?.id;

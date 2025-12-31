@@ -10,8 +10,11 @@ export interface IUser extends Document {
   banner: string | null;
   email: string;
   password: string;
-  profileSettings: {
-    privacy: 'public' | 'private';
+  privacySettings: {
+    mood: 'public' | 'friends' | 'private';
+    library: 'public' | 'friends' | 'private';
+    activity: 'public' | 'friends' | 'private';
+    stats: 'public' | 'friends' | 'private';
   };
   subscription: {
     tier: SubscriptionTier;
@@ -121,10 +124,25 @@ const userSchema = new Schema<IUser>(
       minlength: [6, 'Password must be at least 6 characters'],
       select: false
     },
-    profileSettings: {
-      privacy: {
+    privacySettings: {
+      mood: {
         type: String,
-        enum: ['public', 'private'],
+        enum: ['public', 'friends', 'private'],
+        default: 'public'
+      },
+      library: {
+        type: String,
+        enum: ['public', 'friends', 'private'],
+        default: 'public'
+      },
+      activity: {
+        type: String,
+        enum: ['public', 'friends', 'private'],
+        default: 'public'
+      },
+      stats: {
+        type: String,
+        enum: ['public', 'friends', 'private'],
         default: 'public'
       }
     },

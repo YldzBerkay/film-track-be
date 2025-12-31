@@ -12,6 +12,9 @@ router.get('/profile/me', authMiddleware, UserController.getCurrentProfile);
 // Update current user's profile
 router.put('/profile/me', authMiddleware, upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), UserController.updateProfile);
 
+// Update privacy settings
+router.patch('/profile/privacy', authMiddleware, UserController.updatePrivacy);
+
 // Delete current user's account
 router.delete('/me', authMiddleware, UserController.deleteAccount);
 

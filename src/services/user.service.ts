@@ -3,49 +3,116 @@ import { Activity } from '../models/activity.model';
 import { GamificationService } from './gamification.service';
 import sharp from 'sharp';
 
-interface UserProfileResponse {
+// Shared types
+interface UserStats {
+  moviesWatched: number;
+  episodesWatched: number;
+  totalRuntime: number;
+}
+
+interface FavoriteMovie {
+  tmdbId: number;
+  title: string;
+  posterPath: string;
+  releaseDate: string;
+}
+
+interface FavoriteTvShow {
+  tmdbId: number;
+  name: string;
+  posterPath: string;
+  firstAirDate: string;
+}
+
+interface MasteryInfo {
+  level: number;
+  title: string;
+  score: number;
+  nextLevelScore: number;
+  scoreToNextLevel: number;
+  progressPercent: number;
+}
+
+interface MoodVector {
+  adrenaline: number;
+  melancholy: number;
+  joy: number;
+  tension: number;
+  intellect: number;
+  romance: number;
+  wonder: number;
+  nostalgia: number;
+  darkness: number;
+  inspiration: number;
+}
+
+// ========== PRIVATE PROFILE (for /me endpoint) ==========
+interface PrivateProfileResponse {
   user: {
     id: string;
     username: string;
     name: string;
     email: string;
-    stats: {
-      moviesWatched: number;
-      episodesWatched: number;
-      totalRuntime: number;
-    };
+    stats: UserStats;
     followersCount: number;
     followingCount: number;
-    favoriteMovies: Array<{
-      tmdbId: number;
-      title: string;
-      posterPath: string;
-      releaseDate: string;
-    }>;
-    favoriteTvShows: Array<{
-      tmdbId: number;
-      name: string;
-      posterPath: string;
-      firstAirDate: string;
-    }>;
+    favoriteMovies: FavoriteMovie[];
+    favoriteTvShows: FavoriteTvShow[];
     avatar: string | null;
     banner: string | null;
     usernameLastChanged: Date | null;
     canChangeUsernameAt: Date | null;
     createdAt: Date;
   };
-
   reviewCount: number;
-  isFollowedByMe?: boolean;
-  recommendationQuota?: {
+  mastery: MasteryInfo;
+  recommendationQuota: {
     remaining: number;
     total: number;
     lastResetDate: Date;
   };
 }
 
+// ========== PUBLIC PROFILE (for /:username endpoint) ==========
+interface PublicProfileResponse {
+  user: {
+    id: string;
+    username: string;
+    name: string;
+    // NO email
+    stats?: UserStats; // Optional because it might be hidden
+    followersCount: number;
+    followingCount: number;
+    favoriteMovies: FavoriteMovie[];
+    favoriteTvShows: FavoriteTvShow[];
+    avatar: string | null;
+    banner: string | null;
+    // NO usernameLastChanged / canChangeUsernameAt
+    createdAt: Date;
+  };
+  reviewCount: number;
+  mastery: MasteryInfo;
+  isFollowedByMe?: boolean;
+  isFriend?: boolean;  // true if mutual followers
+  privacySettings: {
+    mood: 'public' | 'friends' | 'private';
+    library: 'public' | 'friends' | 'private';
+    activity: 'public' | 'friends' | 'private';
+    stats: 'public' | 'friends' | 'private';
+  };
+  moodVector?: MoodVector;  // Only if privacy allows
+  // NO recommendationQuota
+}
+
 export class UserService {
-  static async getUserProfile(username: string, currentUserId?: string, lang?: string): Promise<UserProfileResponse> {
+  // Helper to check visibility
+  private static canView(privacy: string, isFriend: boolean, isSelf: boolean): boolean {
+    if (isSelf) return true;
+    if (privacy === 'public') return true;
+    if (privacy === 'friends' && isFriend) return true;
+    return false;
+  }
+  static async getUserProfile(username: string, currentUserId?: string, lang?: string): Promise<PublicProfileResponse> {
     const user = await User.findOne({ username }).select('-password');
 
     if (!user) {
@@ -58,12 +125,11 @@ export class UserService {
       const stats = await WatchedListService.getStats(user._id.toString());
 
       user.stats.moviesWatched = stats.totalMovies;
-      user.stats.episodesWatched = stats.totalTvShows; // Mapping TV shows count to episodesWatched for now as per schema
+      user.stats.episodesWatched = stats.totalTvShows;
       user.stats.totalRuntime = stats.totalRuntime;
       await user.save();
     } catch (error) {
       console.error('Failed to update user stats:', error);
-      // Continue without failing the request, using existing stats
     }
 
     // Count reviews
@@ -72,45 +138,76 @@ export class UserService {
       type: 'review'
     });
 
-    // Check if current user is following this profile
+    // Check if current user is following this profile and if they're friends
     let isFollowedByMe: boolean | undefined;
+    let isFriend = false;
     if (currentUserId && currentUserId !== user._id.toString()) {
-      const currentUser = await User.findById(currentUserId).select('following');
+      const currentUser = await User.findById(currentUserId).select('following followers');
       if (currentUser) {
         isFollowedByMe = currentUser.following.some(
           (id) => id.toString() === user._id.toString()
         );
+        // Check if mutual followers (friends)
+        const profileFollowsMe = user.following.some(
+          (id) => id.toString() === currentUserId
+        );
+        isFriend = isFollowedByMe === true && profileFollowsMe;
       }
     }
 
-    const response = {
+    const isSelf = currentUserId === user._id.toString();
+    const privacy = user.privacySettings || {
+      mood: 'public',
+      library: 'public',
+      activity: 'public',
+      stats: 'public'
+    };
+
+    // Determine visibility based on privacy settings
+    const canViewMood = this.canView(privacy.mood, isFriend, isSelf);
+    const canViewStats = this.canView(privacy.stats, isFriend, isSelf);
+
+    // Note: Library and Activity visibility will be handled by their respective services 
+    // or frontend logic using the privacySettings returned here.
+
+    // Build moodVector only if privacy allows
+    const moodVector = canViewMood && user.moodProfile ? {
+      adrenaline: user.moodProfile.adrenaline || 0,
+      melancholy: user.moodProfile.melancholy || 0,
+      joy: user.moodProfile.joy || 0,
+      tension: user.moodProfile.tension || 0,
+      intellect: user.moodProfile.intellect || 0,
+      romance: user.moodProfile.romance || 0,
+      wonder: user.moodProfile.wonder || 0,
+      nostalgia: user.moodProfile.nostalgia || 0,
+      darkness: user.moodProfile.darkness || 0,
+      inspiration: user.moodProfile.inspiration || 0
+    } : undefined;
+
+    // Build PUBLIC response (no email, no quota, no canChangeUsernameAt)
+    const response: PublicProfileResponse = {
       user: {
         id: user._id.toString(),
         username: user.username,
         name: user.name,
-        email: user.email,
-        stats: user.stats,
+        // NO email in public profile
+        stats: canViewStats ? user.stats : undefined,
         followersCount: user.followersCount,
         followingCount: user.followingCount,
         favoriteMovies: user.favoriteMovies,
         favoriteTvShows: user.favoriteTvShows,
         avatar: user.avatar,
         banner: user.banner,
-        usernameLastChanged: user.usernameLastChanged,
-        canChangeUsernameAt: user.usernameLastChanged
-          ? new Date(user.usernameLastChanged.getTime() + 30 * 24 * 60 * 60 * 1000)
-          : null,
+        // NO usernameLastChanged / canChangeUsernameAt in public profile
         createdAt: user.createdAt
       },
-
       reviewCount,
       isFollowedByMe,
+      isFriend,
       mastery: GamificationService.getLevelInfo(user.mastery.score),
-      recommendationQuota: {
-        remaining: user.recommendationQuota?.remaining ?? 3,
-        total: 3,
-        lastResetDate: user.recommendationQuota?.lastResetDate ?? new Date()
-      }
+      privacySettings: privacy,
+      moodVector
+      // NO recommendationQuota in public profile
     };
 
     if (lang) {
@@ -156,7 +253,46 @@ export class UserService {
     return response;
   }
 
-  static async getCurrentUserProfile(userId: string, lang?: string): Promise<UserProfileResponse> {
+  static async updatePrivacySettings(
+    userId: string,
+    settings: {
+      mood?: 'public' | 'friends' | 'private';
+      library?: 'public' | 'friends' | 'private';
+      activity?: 'public' | 'friends' | 'private';
+      stats?: 'public' | 'friends' | 'private';
+    }
+  ): Promise<{ success: boolean; message: string; privacySettings?: any }> {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Initialize if missing
+    if (!user.privacySettings) {
+      user.privacySettings = {
+        mood: 'public',
+        library: 'public',
+        activity: 'public',
+        stats: 'public'
+      };
+    }
+
+    // Update fields
+    if (settings.mood) user.privacySettings.mood = settings.mood;
+    if (settings.library) user.privacySettings.library = settings.library;
+    if (settings.activity) user.privacySettings.activity = settings.activity;
+    if (settings.stats) user.privacySettings.stats = settings.stats;
+
+    await user.save();
+
+    return {
+      success: true,
+      message: 'Privacy settings updated',
+      privacySettings: user.privacySettings
+    };
+  }
+
+  static async getCurrentUserProfile(userId: string, lang?: string): Promise<PrivateProfileResponse> {
     const user = await User.findById(userId).select('-password');
 
     if (!user) {
@@ -176,14 +312,13 @@ export class UserService {
       console.error('Failed to update user stats:', error);
     }
 
-
-
     const reviewCount = await Activity.countDocuments({
       userId: user._id,
       type: 'review'
     });
 
-    const response = {
+    // Build PRIVATE response (includes email, quota, canChangeUsernameAt)
+    const response: PrivateProfileResponse = {
       user: {
         id: user._id.toString(),
         username: user.username,
@@ -202,7 +337,6 @@ export class UserService {
           : null,
         createdAt: user.createdAt
       },
-
       reviewCount,
       mastery: GamificationService.getLevelInfo(user.mastery.score),
       recommendationQuota: {
