@@ -8,9 +8,9 @@ import { MatchService } from '../services/match.service';
 export class MoodController {
   static async getUserMood(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const userId = req.user?.id;
+      const currentUserId = req.user?.id;
 
-      if (!userId) {
+      if (!currentUserId) {
         res.status(401).json({
           success: false,
           message: 'Unauthorized',
@@ -19,10 +19,24 @@ export class MoodController {
         return;
       }
 
+      const targetUserId = (req.query.userId as string) || currentUserId;
+
+      if (targetUserId !== currentUserId) {
+        const canView = await MoodService.canViewMood(targetUserId, currentUserId);
+        if (!canView) {
+          res.status(403).json({
+            success: false,
+            message: 'This user\'s mood data is private',
+            code: 403
+          });
+          return;
+        }
+      }
+
       // Check minimum movie threshold (25 rated movies required)
-      const thresholdMeta = await RecommendationService.checkMovieThreshold(userId);
+      const thresholdMeta = await RecommendationService.checkMovieThreshold(targetUserId);
       if (thresholdMeta) {
-        console.log(`[Mood] User ${userId} has ${thresholdMeta.currentCount}/${thresholdMeta.requiredCount} rated movies`);
+        console.log(`[Mood] User ${targetUserId} has ${thresholdMeta.currentCount}/${thresholdMeta.requiredCount} rated movies`);
         res.status(200).json({
           success: false,
           error: 'NOT_ENOUGH_DATA',
@@ -32,9 +46,12 @@ export class MoodController {
       }
 
       const { forceRecalculate } = req.query;
+      // Only allow forcing recalculation on own profile
+      const shouldRecalculate = (forceRecalculate === 'true') && (targetUserId === currentUserId);
+
       const mood = await MoodService.getUserMood(
-        userId,
-        forceRecalculate === 'true'
+        targetUserId,
+        shouldRecalculate
       );
 
       res.status(200).json({
@@ -96,9 +113,9 @@ export class MoodController {
 
   static async getMoodTimeline(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const userId = req.user?.id;
+      const currentUserId = req.user?.id;
 
-      if (!userId) {
+      if (!currentUserId) {
         res.status(401).json({
           success: false,
           message: 'Unauthorized',
@@ -107,8 +124,24 @@ export class MoodController {
         return;
       }
 
+      // Check if a specific userId is requested
+      const targetUserId = (req.query.userId as string) || currentUserId;
+
+      // If requesting another user's timeline, check privacy
+      if (targetUserId !== currentUserId) {
+        const canView = await MoodService.canViewMood(targetUserId, currentUserId);
+        if (!canView) {
+          res.status(403).json({
+            success: false,
+            message: 'This user\'s mood data is private',
+            code: 403
+          });
+          return;
+        }
+      }
+
       const days = parseInt(req.query.days as string) || 30;
-      const timeline = await MoodService.getMoodTimeline(userId, days);
+      const timeline = await MoodService.getMoodTimeline(targetUserId, days);
 
       // Check minimum active days restriction (must have data for at least 3 days)
       if (timeline.length < 3) {

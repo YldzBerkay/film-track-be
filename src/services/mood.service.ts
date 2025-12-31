@@ -6,6 +6,8 @@ import { MoodSnapshot } from '../models/mood-snapshot.model';
 import { AIService } from './ai.service';
 import { TMDBService } from './tmdb.service';
 
+import { User } from '../models/user.model';
+
 export interface MoodVector {
   adrenaline: number;
   melancholy: number;
@@ -675,5 +677,22 @@ export class MoodService {
   }
 
 
+  static async canViewMood(targetUserId: string, viewerUserId: string): Promise<boolean> {
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) return false;
+
+    const privacy = targetUser.privacySettings?.mood || 'public';
+
+    if (privacy === 'public') return true;
+    if (privacy === 'private') return false;
+
+    if (privacy === 'friends') {
+      const isFollowing = targetUser.followers.some(id => id.toString() === viewerUserId);
+      const isFollowed = targetUser.following.some(id => id.toString() === viewerUserId);
+      return isFollowing && isFollowed;
+    }
+
+    return false;
+  }
 }
 
