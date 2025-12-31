@@ -3,6 +3,7 @@ import { MoodService } from '../services/mood.service';
 import { AIService } from '../services/ai.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { RecommendationService } from '../services/recommendation.service';
+import { MatchService } from '../services/match.service';
 
 export class MoodController {
   static async getUserMood(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -151,7 +152,7 @@ export class MoodController {
         return;
       }
 
-      const comparison = await MoodService.getMoodComparison(userId, targetUserId);
+      const comparison = await MatchService.calculateCompatibility(userId, targetUserId);
 
       res.status(200).json({
         success: true,

@@ -17,6 +17,7 @@ import seasonRatingRoutes from './season-rating.routes';
 import importRoutes from './import.routes';
 import commentRoutes from './comment.routes';
 import interactionRoutes from './interaction.routes';
+import matchRoutes from './match.routes';
 
 const router = Router();
 
@@ -26,7 +27,7 @@ router.use('/favorites', favoritesRoutes);
 router.use('/tmdb', tmdbRoutes);
 router.use('/activities', activityRoutes);
 router.use('/comments', commentRoutes);
-router.use('/interactions', interactionRoutes); // New route
+router.use('/interactions', interactionRoutes);
 router.use('/users', userRoutes);
 router.use('/mood', moodRoutes);
 router.use('/recommendations', recommendationRoutes);
@@ -39,5 +40,6 @@ router.use('/watched', watchedListRoutes);
 router.use('/episodes', episodeRatingRoutes);
 router.use('/seasons', seasonRatingRoutes);
 router.use('/import', importRoutes);
+router.use('/match', matchRoutes);
 
 export default router;
