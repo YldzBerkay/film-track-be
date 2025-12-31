@@ -74,6 +74,7 @@ export interface IUser extends Document {
     darkness: number;
     inspiration: number;
   };
+  lastManualRefreshAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -278,6 +279,10 @@ const userSchema = new Schema<IUser>(
       nostalgia: { type: Number, default: 50 },
       darkness: { type: Number, default: 50 },
       inspiration: { type: Number, default: 50 }
+    },
+    lastManualRefreshAt: {
+      type: Date,
+      default: null
     }
   },
   {

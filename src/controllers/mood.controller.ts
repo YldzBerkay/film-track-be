@@ -161,5 +161,124 @@ export class MoodController {
       next(error);
     }
   }
+
+  /**
+   * POST /api/mood/vibe-check
+   * Set a temporary vibe override for mood-based recommendations
+   */
+  static async vibeCheck(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+          code: 401
+        });
+        return;
+      }
+
+      const { template, strength, durationHours } = req.body;
+
+      if (!template) {
+        res.status(400).json({
+          success: false,
+          message: 'Template is required. Available: ' + Object.keys(MoodService.VIBE_TEMPLATES).join(', '),
+          code: 400
+        });
+        return;
+      }
+
+      const result = await MoodService.setTemporaryVibe(
+        userId,
+        template,
+        strength ?? 0.4,
+        durationHours ?? 4
+      );
+
+      res.status(200).json({
+        success: true,
+        message: `Vibe "${template}" activated! Expires at ${result.expiresAt.toISOString()}`,
+        data: {
+          template,
+          expiresAt: result.expiresAt,
+          vibeVector: result.vector
+        }
+      });
+    } catch (error) {
+      if ((error as Error).message.includes('Unknown vibe template')) {
+        res.status(400).json({
+          success: false,
+          message: (error as Error).message,
+          code: 400
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /api/mood/vibe-check
+   * Clear the current temporary vibe
+   */
+  static async clearVibe(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+          code: 401
+        });
+        return;
+      }
+
+      await MoodService.clearTemporaryVibe(userId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Vibe cleared. Recommendations will now use your historical mood.'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/mood/vibe-check
+   * Get current vibe status and effective mood
+   */
+  static async getVibe(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+          code: 401
+        });
+        return;
+      }
+
+      const effectiveMoodData = await MoodService.getEffectiveMood(userId);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          effectiveMood: effectiveMoodData.mood,
+          hasActiveVibe: effectiveMoodData.hasActiveVibe,
+          vibeTemplate: effectiveMoodData.vibeTemplate || null,
+          vibeExpiresAt: effectiveMoodData.vibeExpiresAt || null,
+          availableTemplates: Object.keys(MoodService.VIBE_TEMPLATES)
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 

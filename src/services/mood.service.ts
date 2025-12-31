@@ -385,6 +385,120 @@ export class MoodService {
   }
 
   /**
+   * Vibe Check Templates - Predefined mood vectors for quick selection
+   */
+  static readonly VIBE_TEMPLATES: Record<string, MoodVector> = {
+    'energetic': { adrenaline: 90, melancholy: 10, joy: 80, tension: 60, intellect: 40, romance: 30, wonder: 70, nostalgia: 20, darkness: 20, inspiration: 85 },
+    'sad': { adrenaline: 10, melancholy: 95, joy: 10, tension: 30, intellect: 50, romance: 40, wonder: 20, nostalgia: 70, darkness: 60, inspiration: 20 },
+    'romantic': { adrenaline: 20, melancholy: 40, joy: 70, tension: 20, intellect: 40, romance: 95, wonder: 60, nostalgia: 50, darkness: 10, inspiration: 60 },
+    'thrilling': { adrenaline: 85, melancholy: 20, joy: 40, tension: 95, intellect: 50, romance: 20, wonder: 50, nostalgia: 20, darkness: 70, inspiration: 40 },
+    'thoughtful': { adrenaline: 15, melancholy: 50, joy: 40, tension: 30, intellect: 95, romance: 30, wonder: 60, nostalgia: 40, darkness: 40, inspiration: 70 },
+    'cozy': { adrenaline: 10, melancholy: 20, joy: 85, tension: 5, intellect: 30, romance: 50, wonder: 40, nostalgia: 80, darkness: 5, inspiration: 60 },
+    'dark': { adrenaline: 50, melancholy: 60, joy: 10, tension: 70, intellect: 60, romance: 20, wonder: 30, nostalgia: 30, darkness: 95, inspiration: 20 },
+    'inspiring': { adrenaline: 60, melancholy: 20, joy: 75, tension: 40, intellect: 50, romance: 30, wonder: 70, nostalgia: 40, darkness: 10, inspiration: 95 },
+    'nostalgic': { adrenaline: 30, melancholy: 50, joy: 60, tension: 20, intellect: 40, romance: 50, wonder: 40, nostalgia: 95, darkness: 20, inspiration: 50 },
+    'adventurous': { adrenaline: 85, melancholy: 10, joy: 70, tension: 50, intellect: 40, romance: 30, wonder: 90, nostalgia: 30, darkness: 30, inspiration: 80 }
+  };
+
+  /**
+   * Set a temporary vibe override for the user (Vibe Check feature)
+   * Valid for 4 hours by default
+   * @param template - Predefined mood template name (e.g., "sad", "energetic")
+   * @param strength - Blend factor 0-1 (default 0.4)
+   * @param durationHours - How long the vibe lasts (default 4 hours)
+   */
+  static async setTemporaryVibe(
+    userId: string,
+    template: string,
+    strength: number = 0.4,
+    durationHours: number = 4
+  ): Promise<{ success: boolean; expiresAt: Date; vector: MoodVector }> {
+    const vibeVector = this.VIBE_TEMPLATES[template.toLowerCase()];
+
+    if (!vibeVector) {
+      throw new Error(`Unknown vibe template: ${template}. Available: ${Object.keys(this.VIBE_TEMPLATES).join(', ')}`);
+    }
+
+    const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000);
+
+    await UserStats.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          temporaryVibe: {
+            vector: vibeVector,
+            strength: Math.max(0, Math.min(1, strength)),
+            expiresAt,
+            template: template.toLowerCase()
+          }
+        }
+      },
+      { upsert: true }
+    );
+
+    console.log(`[Vibe Check] Set ${template} vibe for user ${userId}, expires at ${expiresAt.toISOString()}`);
+
+    return { success: true, expiresAt, vector: vibeVector };
+  }
+
+  /**
+   * Clear the temporary vibe for a user
+   */
+  static async clearTemporaryVibe(userId: string): Promise<void> {
+    await UserStats.findOneAndUpdate(
+      { userId },
+      { $unset: { temporaryVibe: 1 } }
+    );
+    console.log(`[Vibe Check] Cleared vibe for user ${userId}`);
+  }
+
+  /**
+   * Get the effective mood for recommendations
+   * Blends historical mood with temporary vibe if active
+   * Returns: { mood, hasActiveVibe, vibeTemplate }
+   */
+  static async getEffectiveMood(userId: string): Promise<{
+    mood: MoodVector;
+    hasActiveVibe: boolean;
+    vibeTemplate?: string;
+    vibeExpiresAt?: Date;
+  }> {
+    const userStats = await UserStats.findOne({ userId }).lean();
+
+    // Get base historical mood
+    const historicalMood = userStats?.currentMood || this.getDefaultMood();
+
+    // Check for active temporary vibe
+    if (userStats?.temporaryVibe && userStats.temporaryVibe.expiresAt > new Date()) {
+      const vibe = userStats.temporaryVibe;
+      const strength = vibe.strength;
+
+      // Blend: TargetMood = (HistoricalMood * (1 - strength)) + (VibeVector * strength)
+      const blendedMood: MoodVector = { ...historicalMood };
+
+      for (const key of Object.keys(blendedMood) as (keyof MoodVector)[]) {
+        blendedMood[key] = Math.round(
+          (historicalMood[key] * (1 - strength)) + (vibe.vector[key] * strength)
+        );
+      }
+
+      console.log(`[Vibe Check] Blending ${vibe.template} (${strength * 100}% strength) with historical mood`);
+
+      return {
+        mood: blendedMood,
+        hasActiveVibe: true,
+        vibeTemplate: vibe.template,
+        vibeExpiresAt: vibe.expiresAt
+      };
+    }
+
+    return {
+      mood: historicalMood,
+      hasActiveVibe: false
+    };
+  }
+
+  /**
    * Save a mood snapshot for timeline tracking
    */
   static async saveMoodSnapshot(

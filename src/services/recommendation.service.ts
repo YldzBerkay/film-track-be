@@ -2,12 +2,34 @@ import { Activity } from '../models/activity.model';
 import { WatchedList } from '../models/watched-list.model';
 import { TMDBService } from './tmdb.service';
 import { MovieService } from './movie.service';
-import { User } from '../models/user.model';
+import { User, IUser } from '../models/user.model';
 import { Movie } from '../models/movie.model';
 import { MoodService, MoodVector } from './mood.service';
 import { AIService } from './ai.service';
 import { UserRecommendationCache, ICachedRecommendation } from '../models/user-recommendation-cache.model';
+import { SubscriptionTier } from '../models/subscription.types';
+import { UserStats } from '../models/user-stats.model';
 
+/**
+ * Cache duration by subscription tier
+ */
+const TIER_CACHE_DAYS: Record<SubscriptionTier, number> = {
+    [SubscriptionTier.FREE]: 7,
+    [SubscriptionTier.PREMIUM]: 3,
+    [SubscriptionTier.PREMIUM_PLUS]: 1
+};
+
+/**
+ * Manual refresh cooldown by tier (in days)
+ * FREE: Cannot force refresh
+ * PREMIUM: Once per 7 days
+ * PREMIUM_PLUS: Unlimited
+ */
+const TIER_REFRESH_COOLDOWN_DAYS: Record<SubscriptionTier, number> = {
+    [SubscriptionTier.FREE]: -1, // -1 = disabled
+    [SubscriptionTier.PREMIUM]: 7,
+    [SubscriptionTier.PREMIUM_PLUS]: 0 // 0 = unlimited
+};
 interface MealtimeRecommendation {
     showTitle: string;
     showPoster: string;
@@ -957,14 +979,13 @@ Use this feedback to refine the next suggestions.
     }
 
     /**
-     * Get AI-curated recommendations with weekly caching
+     * Get AI-curated recommendations with TIERED caching and Vibe Check support
      * 
-     * CACHE-FIRST LOGIC:
-     * 1. Check for valid cached recommendations (not expired)
-     * 2. If cached and not forceRefresh, return cached
-     * 3. Otherwise, generate new recommendations via AI
-     * 4. Save to cache with 7-day expiry
-     * 5. Return recommendations
+     * V2 FEATURES:
+     * 1. Tiered Cache TTL: FREE=7d, PREMIUM=3d, PREMIUM_PLUS=1d
+     * 2. Vibe Check: If temporaryVibe is active, BYPASS cache and use blended mood
+     * 3. Manual Refresh Token: Tier-based cooldowns for forceRefresh
+     * 4. Blended Mood: Combines historical mood with temporary vibe
      */
     static async getAICuratedRecommendations(
         userId: string,
@@ -974,10 +995,52 @@ Use this feedback to refine the next suggestions.
         mode: 'match' | 'shift' = 'match'
     ): Promise<MoodRecommendation[]> {
         const startTime = Date.now();
-        const CACHE_DURATION_DAYS = 7;
 
         try {
-            // 1. Check cache first (unless forceRefresh)
+            // 1. Get user for subscription tier
+            const user = await User.findById(userId).lean() as IUser | null;
+            const tier = user?.subscription?.tier || SubscriptionTier.FREE;
+            const cacheDurationDays = TIER_CACHE_DAYS[tier];
+
+            console.log(`[AI Curation V2] User tier: ${tier}, Cache TTL: ${cacheDurationDays} days`);
+
+            // 2. Check for active Vibe Check (BYPASSES CACHE)
+            const effectiveMoodData = await MoodService.getEffectiveMood(userId);
+            const hasActiveVibe = effectiveMoodData.hasActiveVibe;
+
+            if (hasActiveVibe) {
+                console.log(`[AI Curation V2] Active Vibe Check detected (${effectiveMoodData.vibeTemplate}), BYPASSING cache`);
+                forceRefresh = true; // Force regeneration with blended mood
+            }
+
+            // 3. Validate forceRefresh against tier limits
+            if (forceRefresh && !hasActiveVibe) {
+                const cooldownDays = TIER_REFRESH_COOLDOWN_DAYS[tier];
+
+                if (cooldownDays === -1) {
+                    // FREE tier cannot force refresh
+                    console.log(`[AI Curation V2] FREE tier cannot force refresh, using cache`);
+                    forceRefresh = false;
+                } else if (cooldownDays > 0) {
+                    // Check last refresh time for PREMIUM
+                    const lastRefresh = user?.lastManualRefreshAt;
+                    if (lastRefresh) {
+                        const daysSinceRefresh = (Date.now() - new Date(lastRefresh).getTime()) / (1000 * 60 * 60 * 24);
+                        if (daysSinceRefresh < cooldownDays) {
+                            console.log(`[AI Curation V2] PREMIUM tier on cooldown (${Math.ceil(cooldownDays - daysSinceRefresh)} days left)`);
+                            forceRefresh = false;
+                        }
+                    }
+                }
+                // cooldownDays === 0 means PREMIUM_PLUS with unlimited refreshes
+            }
+
+            // 4. Update lastManualRefreshAt if actually force refreshing
+            if (forceRefresh && !hasActiveVibe && user) {
+                await User.findByIdAndUpdate(userId, { lastManualRefreshAt: new Date() });
+            }
+
+            // 5. Check cache first (unless forceRefresh)
             if (!forceRefresh) {
                 const cachedData = await UserRecommendationCache.findOne({
                     userId,
@@ -987,14 +1050,10 @@ Use this feedback to refine the next suggestions.
 
                 if (cachedData && cachedData.recommendations.length > 0) {
                     const cacheAge = Math.floor((Date.now() - new Date(cachedData.generatedAt).getTime()) / (1000 * 60 * 60 * 24));
-                    console.log(`[AI Curation] Returning cached recommendations (${cacheAge} days old, ${cachedData.recommendations.length} items)`);
+                    console.log(`[AI Curation V2] Returning cached recommendations (${cacheAge}d old, tier: ${tier})`);
 
-                    // Map to a format suitable for hydration and return
-                    // Note: Cached items might not have the full 'translations' array attached, 
-                    // allowing 'hydrateMoviesWithLanguage' to naturally fetch missing languages from TMDB if needed.
-                    // We must pass objects that have at least 'tmdbId' and the fields we want to populate.
                     let basicRecs: any[] = cachedData.recommendations.slice(0, limit).map(rec => ({
-                        _id: (rec as any)._id, // If stored
+                        _id: (rec as any)._id,
                         tmdbId: rec.tmdbId,
                         title: rec.title,
                         posterPath: rec.posterPath,
@@ -1016,14 +1075,17 @@ Use this feedback to refine the next suggestions.
                 }
             }
 
-            console.log(`[AI Curation] ${forceRefresh ? 'Force refresh requested' : 'Cache miss/expired'}, generating new recommendations...`);
+            console.log(`[AI Curation V2] ${forceRefresh ? 'Force refresh requested' : 'Cache miss/expired'}, generating new recommendations...`);
 
-            // 2. Get user's current mood
-            const userMood = await MoodService.getUserMood(userId);
+            // 6. Use effective mood (already fetched, includes vibe blending)
+            const userMood = effectiveMoodData.mood;
+            if (effectiveMoodData.hasActiveVibe) {
+                console.log(`[AI Curation V2] Using BLENDED mood (${effectiveMoodData.vibeTemplate} vibe active)`);
+            }
 
-            // 3. Build mood description for AI curator
+            // 7. Build mood description for AI curator
             const moodDescription = this.buildMoodDescription(userMood);
-            console.log(`[AI Curation] User mood description: ${moodDescription}`);
+            console.log(`[AI Curation V2] User mood description: ${moodDescription}`);
 
             // 3b. Identify Top 3 Dominant Dimensions for Genre Mapping
             const sortedMoods = Object.entries(userMood)
@@ -1224,34 +1286,39 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
                 .sort((a, b) => b.moodSimilarity - a.moodSimilarity)
                 .slice(0, limit);
 
-            // 8. Save to cache with 7-day expiry
-            const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + CACHE_DURATION_DAYS);
 
-            const cacheData: ICachedRecommendation[] = rankedMovies.map(movie => ({
-                tmdbId: movie.tmdbId,
-                title: movie.title,
-                posterPath: movie.posterPath,
-                backdropPath: movie.backdropPath,
-                overview: movie.overview,
-                releaseDate: movie.releaseDate,
-                moodVector: movie.moodVector,
-                moodSimilarity: movie.moodSimilarity
-            }));
+            // 8. Save to cache with tier-based expiry (ONLY if no active vibe)
+            if (!hasActiveVibe) {
+                const expiresAt = new Date();
+                expiresAt.setDate(expiresAt.getDate() + cacheDurationDays);
 
-            await UserRecommendationCache.findOneAndUpdate(
-                { userId, moodMode: mode },
-                {
-                    userId,
-                    recommendations: cacheData,
-                    moodMode: mode,
-                    generatedAt: new Date(),
-                    expiresAt
-                },
-                { upsert: true, new: true }
-            );
+                const cacheData: ICachedRecommendation[] = rankedMovies.map(movie => ({
+                    tmdbId: movie.tmdbId,
+                    title: movie.title,
+                    posterPath: movie.posterPath,
+                    backdropPath: movie.backdropPath,
+                    overview: movie.overview,
+                    releaseDate: movie.releaseDate,
+                    moodVector: movie.moodVector,
+                    moodSimilarity: movie.moodSimilarity
+                }));
 
-            console.log(`[AI Curation] Cached ${cacheData.length} recommendations, expires: ${expiresAt.toISOString()}`);
+                await UserRecommendationCache.findOneAndUpdate(
+                    { userId, moodMode: mode },
+                    {
+                        userId,
+                        recommendations: cacheData,
+                        moodMode: mode,
+                        generatedAt: new Date(),
+                        expiresAt
+                    },
+                    { upsert: true, new: true }
+                );
+
+                console.log(`[AI Curation V2] Cached ${cacheData.length} recommendations, expires: ${expiresAt.toISOString()}`);
+            } else {
+                console.log(`[AI Curation V2] Active Vibe detected - SKIPPING Cache Save to prevent pollution.`);
+            }
 
             const elapsed = Date.now() - startTime;
             console.log(`[AI Curation] Completed in ${elapsed}ms with ${rankedMovies.length} results (100% AI-driven)`);
