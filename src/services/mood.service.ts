@@ -84,7 +84,7 @@ export class MoodService {
    * If user watches too much similar content, reduce the influence.
    * @param recentVectors Last K mood vectors from watched content
    * @param newVector The mood vector of the new item being added
-   * @returns Fatigue factor between 0.5 and 1.0 (1.0 = no fatigue, 0.5 = max fatigue)
+   * @returns Fatigue factor between 0.8 and 1.0 (1.0 = no fatigue, 0.8 = max fatigue)
    */
   private static calculateSaturationFactor(
     recentVectors: MoodVector[],
@@ -98,14 +98,40 @@ export class MoodService {
     const similarities = recentVectors.map(v => this.cosineSimilarity(v, newVector));
     const avgSimilarity = similarities.reduce((a, b) => a + b, 0) / similarities.length;
 
-    // If average similarity > 0.8, apply fatigue
+    // If average similarity > 0.8, apply gentle fatigue
     if (avgSimilarity > 0.8) {
-      // Linear fatigue: 0.8 similarity = 1.0 factor, 1.0 similarity = 0.5 factor
-      const fatigueFactor = 1.0 - (avgSimilarity - 0.8) * 2.5;
-      return Math.max(0.5, fatigueFactor);
+      // Linear fatigue: 0.8 similarity = 1.0 factor, 1.0 similarity = 0.8 factor (relaxed)
+      const fatigueFactor = 1.0 - (avgSimilarity - 0.8) * 1.0;
+      return Math.max(0.8, fatigueFactor);
     }
 
     return 1.0;
+  }
+
+  /**
+   * Apply contrast stretching to push values away from the neutral center (50).
+   * Amplifies distinctions in the mood profile.
+   * @param mood The mood vector to stretch
+   * @param strength Amplification factor (0.5 = 50% boost to deviations)
+   */
+  private static applyContrastStretching(mood: MoodVector, strength: number = 0.5): MoodVector {
+    const centerPoint = 50;
+    const stretched: MoodVector = { ...mood };
+
+    for (const key of Object.keys(mood) as (keyof MoodVector)[]) {
+      const value = mood[key];
+      const deviation = value - centerPoint;
+
+      // Amplify deviation from center
+      const amplifiedDeviation = deviation * (1 + strength);
+
+      // Apply with clamping to 0-100
+      stretched[key] = Math.round(
+        Math.max(0, Math.min(100, centerPoint + amplifiedDeviation))
+      );
+    }
+
+    return stretched;
   }
 
   /**
@@ -193,7 +219,9 @@ export class MoodService {
     const movieMap = new Map(moviesInDb.map(m => [`${m.tmdbId}_${m.mediaType}`, m]));
 
     // 4. Calculation Loop
-    const baselineWeight = 5.0;
+    // Dynamic baseline: decays as user provides more data
+    const movieCount = mergedItems.length;
+    const baselineWeight = Math.max(0.5, 5.0 / Math.sqrt(movieCount / 10 + 1));
     const weightedSums = this.getWeightedSums(baselineWeight);
     let totalWeight = baselineWeight;
 
@@ -264,7 +292,10 @@ export class MoodService {
       });
     }
 
-    return finalMood;
+    // 6. Apply Contrast Stretching to amplify distinct preferences
+    const stretchedMood = this.applyContrastStretching(finalMood);
+
+    return stretchedMood;
   }
 
   // Helpers

@@ -53,7 +53,14 @@ export interface TMDBMovieDetails extends TMDBMovie {
       id: number;
       name: string;
       job: string;
+      department: string;
       profile_path: string | null;
+    }>;
+  };
+  keywords?: {
+    keywords: Array<{
+      id: number;
+      name: string;
     }>;
   };
   videos?: {
@@ -67,6 +74,21 @@ export interface TMDBMovieDetails extends TMDBMovie {
   similar?: {
     results: TMDBMovie[];
   };
+}
+
+/**
+ * Enriched movie data for AI mood analysis
+ */
+export interface MovieForAI {
+  tmdbId: number;
+  title: string;
+  overview: string;
+  director?: string;
+  cast: string[];
+  keywords: string[];
+  genres: string[];
+  releaseDate: string;
+  posterPath: string;
 }
 
 export interface TMDBTvShowDetails extends TMDBTvShow {
@@ -331,7 +353,7 @@ export class TMDBService {
     try {
       const response = await this.client.get(`/movie/${tmdbId}`, {
         params: {
-          append_to_response: 'credits,videos,similar',
+          append_to_response: 'credits,videos,similar,keywords',
           ...langParams
         }
       });
@@ -381,6 +403,49 @@ export class TMDBService {
       return 'https://via.placeholder.com/1920x1080?text=No+Image';
     }
     return `${this.IMAGE_BASE_URL}/${size}${backdropPath}`;
+  }
+
+  /**
+   * Get enriched movie data for AI mood analysis
+   * Extracts director, top cast, and keywords from TMDB
+   */
+  static async getMovieForAI(tmdbId: number, lang?: string): Promise<MovieForAI> {
+    try {
+      const details = await this.getMovieDetails(tmdbId.toString(), lang || 'en');
+
+      // Extract director from crew (job = 'Director')
+      const director = details.credits?.crew?.find(
+        (member) => member.job === 'Director'
+      )?.name;
+
+      // Extract top 5 cast members by order (first 5 are leads)
+      const cast = details.credits?.cast
+        ?.slice(0, 5)
+        .map((actor) => actor.name) || [];
+
+      // Extract top 10 keywords
+      const keywords = details.keywords?.keywords
+        ?.slice(0, 10)
+        .map((kw) => kw.name) || [];
+
+      // Extract genre names
+      const genres = details.genres?.map((g) => g.name) || [];
+
+      return {
+        tmdbId: details.id,
+        title: details.title,
+        overview: details.overview || '',
+        director,
+        cast,
+        keywords,
+        genres,
+        releaseDate: details.release_date || '',
+        posterPath: details.poster_path || ''
+      };
+    } catch (error) {
+      console.error(`[TMDB] Failed to get movie for AI: ${tmdbId}`, error);
+      throw new Error('Failed to get enriched movie data');
+    }
   }
 }
 
