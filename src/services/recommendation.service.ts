@@ -179,64 +179,160 @@ export class RecommendationService {
      * FIX: In 'shift' mode, we do NOT copy the userMood. We build a fresh target.
      * If user has high Adrenaline (e.g., 69), we explicitly want LOW Adrenaline (e.g., 10),
      * regardless of arbitrary thresholds.
+     * 
+     * V2: Now uses database-driven ShiftRules with in-memory caching
+     */
+
+    // In-memory cache for ShiftRules (1 hour TTL)
+    private static shiftRulesCache: { rules: any[]; cachedAt: number } | null = null;
+    private static readonly SHIFT_RULES_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+    private static readonly NEUTRAL_BASE_VECTOR: MoodVector = {
+        adrenaline: 20,
+        melancholy: 20,
+        joy: 50,
+        tension: 20,
+        intellect: 50,
+        romance: 30,
+        wonder: 50,
+        nostalgia: 30,
+        darkness: 10,
+        inspiration: 50
+    };
+
+    /**
+     * Fetch ShiftRules from DB with in-memory caching
+     */
+    private static async getShiftRules(): Promise<any[]> {
+        const now = Date.now();
+
+        // Check cache validity
+        if (this.shiftRulesCache && (now - this.shiftRulesCache.cachedAt) < this.SHIFT_RULES_CACHE_TTL_MS) {
+            return this.shiftRulesCache.rules;
+        }
+
+        // Fetch from DB, sorted by priority descending
+        const { ShiftRule } = await import('../models/shift-rule.model');
+        const rules = await ShiftRule.find({ isActive: true })
+            .sort({ priority: -1 })
+            .lean();
+
+        // Update cache
+        this.shiftRulesCache = { rules, cachedAt: now };
+        console.log(`[ShiftRules] Cached ${rules.length} active rules`);
+
+        return rules;
+    }
+
+    /**
+     * Check if userMood meets a rule's conditions
+     * All specified conditions must be met (AND logic)
+     */
+    private static evaluateConditions(userMood: MoodVector, conditions: any): boolean {
+        for (const [dimension, condition] of Object.entries(conditions)) {
+            if (!condition || typeof condition !== 'object') continue;
+
+            const userValue = userMood[dimension as keyof MoodVector];
+            const cond = condition as { min?: number; max?: number };
+
+            // Check min threshold
+            if (cond.min !== undefined && userValue < cond.min) {
+                return false;
+            }
+
+            // Check max threshold
+            if (cond.max !== undefined && userValue > cond.max) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Apply targetEffects to neutral base vector
+     */
+    private static applyTargetEffects(targetEffects: any): MoodVector {
+        const result = { ...this.NEUTRAL_BASE_VECTOR };
+
+        for (const [dimension, value] of Object.entries(targetEffects)) {
+            if (typeof value === 'number' && dimension in result) {
+                result[dimension as keyof MoodVector] = value;
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Calculate target vector for recommendations
+     * V2: Database-driven with first-match-wins priority
+     */
+    private static async calculateTargetVectorAsync(userMood: MoodVector, mode: 'match' | 'shift'): Promise<MoodVector> {
+        if (mode === 'match') {
+            return userMood;
+        }
+
+        // SHIFT MODE: Use database-driven rules
+        try {
+            const rules = await this.getShiftRules();
+
+            // First-match-wins: Iterate by priority (already sorted)
+            for (const rule of rules) {
+                if (this.evaluateConditions(userMood, rule.conditions)) {
+                    const target = this.applyTargetEffects(rule.targetEffects);
+                    console.log(`[TargetVector] Rule matched: "${rule.name}" (priority ${rule.priority})`);
+                    console.log(`   User: Adrenaline=${userMood.adrenaline}, Tension=${userMood.tension}, Melancholy=${userMood.melancholy}`);
+                    console.log(`   Target: Adrenaline=${target.adrenaline}, Tension=${target.tension}, Joy=${target.joy}`);
+                    return target;
+                }
+            }
+
+            console.log(`[TargetVector] No rules matched, checking boredom fallback...`);
+        } catch (error) {
+            console.error('[TargetVector] Error fetching ShiftRules, using fallback:', error);
+        }
+
+        // FALLBACK: Handle "Boredom" (Low everything) - kept as hardcoded fallback
+        const isBored = Object.values(userMood).every(v => v < 60);
+        if (isBored) {
+            const boredomTarget = {
+                ...this.NEUTRAL_BASE_VECTOR,
+                adrenaline: 85,
+                wonder: 85,
+                inspiration: 80
+            };
+            console.log(`[TargetVector] Boredom detected, applying excitement boost`);
+            return boredomTarget;
+        }
+
+        // Default: Return neutral base
+        console.log(`[TargetVector] No rules matched, returning neutral base`);
+        return { ...this.NEUTRAL_BASE_VECTOR };
+    }
+
+    /**
+     * Sync wrapper for backward compatibility
+     * Note: This is a legacy method, prefer calculateTargetVectorAsync
      */
     private static calculateTargetVector(userMood: MoodVector, mode: 'match' | 'shift'): MoodVector {
         if (mode === 'match') {
             return userMood;
         }
 
-        // SHIFT MODE: Construct a "Counter-Vector" from neutral base
-        // Start with a fresh, neutral target (low intensity negatives, moderate positives)
-        const target: MoodVector = {
-            adrenaline: 20,
-            melancholy: 20,
-            joy: 50,       // Default slightly hopeful
-            tension: 20,
-            intellect: 50, // Neutral - preserved
-            romance: 30,
-            wonder: 50,
-            nostalgia: 30,
-            darkness: 10,
-            inspiration: 50
-        };
-
-        // 1. ANALYZE & INVERT: Handle Adrenaline/Tension (The Stress Axis)
-        if (userMood.adrenaline > 50 || userMood.tension > 50) {
-            target.adrenaline = 10; // Force calm
-            target.tension = 10;    // Force relax
-            target.joy = 85;        // Boost joy as antidote
-            target.nostalgia = 70;  // Nostalgia is calming
-        }
-
-        // 2. Handle Melancholy/Darkness (The Sadness Axis)
-        if (userMood.melancholy > 50 || userMood.darkness > 50) {
-            target.melancholy = 10;
-            target.darkness = 10;
-            target.joy = 90;        // High Joy
-            target.inspiration = 85; // High Inspiration
-            target.wonder = 80;      // High Wonder
-        }
-
-        // 3. Handle Over-Joy (To ground them - shift from pure Comedy to Intellect/Thriller)
-        if (userMood.joy > 80 && userMood.intellect < 40) {
-            target.joy = 40;
-            target.intellect = 85;
-            target.tension = 60; // Add some spice
-        }
-
-        // 4. Handle "Boredom" (Low everything) - boost excitement
+        // For sync calls, use the neutral base with boredom check only
+        // Full rule evaluation requires async
         const isBored = Object.values(userMood).every(v => v < 60);
         if (isBored) {
-            target.adrenaline = 85;
-            target.wonder = 85;
-            target.inspiration = 80;
+            return {
+                ...this.NEUTRAL_BASE_VECTOR,
+                adrenaline: 85,
+                wonder: 85,
+                inspiration: 80
+            };
         }
 
-        console.log(`[TargetVector] SHIFT CALCULATION:`);
-        console.log(`   User: Adrenaline=${userMood.adrenaline}, Tension=${userMood.tension}, Melancholy=${userMood.melancholy}`);
-        console.log(`   Target: Adrenaline=${target.adrenaline}, Tension=${target.tension}, Joy=${target.joy}`);
-
-        return target;
+        return { ...this.NEUTRAL_BASE_VECTOR };
     }
 
 
@@ -1212,8 +1308,8 @@ Example: If they are tense, do NOT suggest Thrillers. Suggest Comedy or Fantasy 
 
                     console.log(`[AI Curation] Resolved ${resolvedMovies.length} movies in attempt ${attempts}`);
 
-                    // 7. Calculate target vector and similarity
-                    const targetVector = this.calculateTargetVector(userMood, mode);
+                    // 7. Calculate target vector and similarity (now async for DB-driven rules)
+                    const targetVector = await this.calculateTargetVectorAsync(userMood, mode);
 
                     const batchRanked = resolvedMovies
                         .map(movie => {
