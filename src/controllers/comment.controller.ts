@@ -223,20 +223,84 @@ export class CommentController {
         }
     }
 
+    /**
+     * Delete a comment with soft/hard delete logic
+     * - No replies → Hard delete
+     * - Has replies → Soft delete (anonymize, preserve thread)
+     */
     static async deleteComment(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-        // Basic delete
         try {
             const userId = req.user?.id;
             const { id } = req.params;
 
-            const comment = await Comment.findOneAndDelete({ _id: id, userId });
+            if (!userId) {
+                res.status(401).json({ success: false, message: 'Unauthorized' });
+                return;
+            }
+
+            // Find the comment (must belong to user)
+            const comment = await Comment.findOne({ _id: id, userId });
+
             if (!comment) {
                 res.status(404).json({ success: false, message: 'Comment not found or unauthorized' });
                 return;
             }
 
-            // Decrement counts... logic needed
-            res.status(200).json({ success: true, message: 'Deleted' });
+            // Already deleted?
+            if (comment.isDeleted) {
+                res.status(400).json({ success: false, message: 'Comment already deleted' });
+                return;
+            }
+
+            const hasReplies = comment.replyCount > 0;
+
+            if (hasReplies) {
+                // SOFT DELETE: Preserve thread structure
+                await Comment.findByIdAndUpdate(id, {
+                    $set: {
+                        isDeleted: true,
+                        deletedAt: new Date(),
+                        text: '[deleted]',
+                        // Anonymize by clearing user reference in populated responses
+                        // We keep userId for admin purposes but FE will show "deleted"
+                    },
+                    $unset: {
+                        likes: 1,
+                        dislikes: 1
+                    }
+                });
+
+                console.log(`[Comment] Soft deleted comment ${id} (has ${comment.replyCount} replies)`);
+
+                res.status(200).json({
+                    success: true,
+                    message: 'Comment deleted',
+                    softDeleted: true
+                });
+            } else {
+                // HARD DELETE: No replies, safe to remove entirely
+                await Comment.findByIdAndDelete(id);
+
+                // Decrement parent's replyCount if this was a reply
+                if (comment.rootId) {
+                    await Comment.findByIdAndUpdate(comment.rootId, {
+                        $inc: { replyCount: -1 }
+                    });
+                }
+
+                // Decrement Activity comment count
+                await Activity.findByIdAndUpdate(comment.activityId, {
+                    $inc: { commentCount: -1 }
+                });
+
+                console.log(`[Comment] Hard deleted comment ${id}`);
+
+                res.status(200).json({
+                    success: true,
+                    message: 'Comment deleted',
+                    softDeleted: false
+                });
+            }
         } catch (error) {
             next(error);
         }

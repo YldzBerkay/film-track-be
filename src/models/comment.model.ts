@@ -12,6 +12,8 @@ export interface IComment extends Document {
     dislikes: mongoose.Types.ObjectId[];
     likesCount: number;
     dislikesCount: number;
+    isDeleted: boolean;
+    deletedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -67,6 +69,15 @@ const commentSchema = new Schema<IComment>(
         dislikesCount: {
             type: Number,
             default: 0
+        },
+        isDeleted: {
+            type: Boolean,
+            default: false,
+            index: true
+        },
+        deletedAt: {
+            type: Date,
+            default: null
         }
     },
     {
