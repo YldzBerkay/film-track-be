@@ -66,6 +66,12 @@ interface PrivateProfileResponse {
   };
   reviewCount: number;
   mastery: MasteryInfo;
+  privacySettings: {
+    mood: string;
+    library: string;
+    activity: string;
+    stats: string;
+  };
   recommendationQuota: {
     remaining: number;
     total: number;
@@ -339,6 +345,12 @@ export class UserService {
       },
       reviewCount,
       mastery: GamificationService.getLevelInfo(user.mastery.score),
+      privacySettings: user.privacySettings || {
+        mood: 'public',
+        library: 'public',
+        activity: 'public',
+        stats: 'public'
+      },
       recommendationQuota: {
         remaining: user.recommendationQuota?.remaining ?? 3,
         total: 3,

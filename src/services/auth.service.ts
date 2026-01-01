@@ -24,6 +24,12 @@ interface AuthResponse {
     email: string;
     streak?: number;
     avatar: string | null;
+    privacySettings?: {
+      mood: string;
+      library: string;
+      activity: string;
+      stats: string;
+    };
   };
   accessToken: string;
   refreshToken: string;
@@ -80,7 +86,8 @@ export class AuthService {
         id: user._id.toString(),
         username: user.username,
         email: user.email,
-        avatar: user.avatar
+        avatar: user.avatar,
+        privacySettings: user.privacySettings
       },
       accessToken,
       refreshToken
@@ -112,7 +119,8 @@ export class AuthService {
         username: user.username,
         email: user.email,
         streak: user.streak?.current || 0,
-        avatar: user.avatar
+        avatar: user.avatar,
+        privacySettings: user.privacySettings
       },
       accessToken,
       refreshToken
@@ -165,7 +173,8 @@ export class AuthService {
         username: user.username,
         email: user.email,
         streak: user.streak?.current || 0,
-        avatar: user.avatar
+        avatar: user.avatar,
+        privacySettings: user.privacySettings
       },
       accessToken: newAccessToken,
       refreshToken: newRefreshToken
