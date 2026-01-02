@@ -104,7 +104,8 @@ export class WatchedListService {
                         'items.$.numberOfEpisodes': item.numberOfEpisodes,
                         'items.$.numberOfSeasons': item.numberOfSeasons,
                         'items.$.genres': item.genres,
-                        'items.$.watchedAt': item.watchedAt || new Date()
+                        'items.$.watchedAt': item.watchedAt || new Date(),
+                        'items.$.hasReview': !!item.reviewText
                     }
                 },
                 { new: true }
@@ -144,6 +145,7 @@ export class WatchedListService {
                             genres: item.genres,
                             rating: item.rating,
                             feedback: item.feedback,
+                            hasReview: !!item.reviewText,
                             watchedAt: item.watchedAt || new Date(),
                             addedAt: new Date()
                         }
@@ -223,7 +225,8 @@ export class WatchedListService {
             },
             {
                 $set: {
-                    'items.$.rating': rating
+                    'items.$.rating': rating,
+                    'items.$.hasReview': !!reviewText
                 }
             },
             { new: true }

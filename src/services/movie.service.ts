@@ -28,6 +28,9 @@ export class MovieService {
             return {
                 ...item,
                 mediaType: resolvedMediaType,
+                releaseDate: item.releaseDate || movieDoc?.releaseDate,
+                originalLanguage: item.originalLanguage || movieDoc?.originalLanguage,
+                originCountry: item.originCountry || movieDoc?.originCountry,
                 translations: (item.translations && item.translations.length > 0)
                     ? item.translations
                     : (movieDoc?.translations || [])
@@ -46,7 +49,12 @@ export class MovieService {
 
         const hydrationPromises = movies.map(async (movie) => {
             let translationData = movie.translations?.find((t: any) => t.iso_639_1 === lang);
-            const needsFetch = !translationData || forceRefresh;
+
+            // Check if we need to heal missing metadata (new fields)
+            const missingMetadata = !movie.originalLanguage || !movie.originCountry || !movie.releaseDate;
+            const needsFetch = !translationData || missingMetadata || forceRefresh;
+
+            let releaseDate = movie.releaseDate;
 
             if (needsFetch) {
                 try {
@@ -71,8 +79,19 @@ export class MovieService {
 
                         translationData = newTranslation;
 
+                        // Capture Metadata for Root Document
+                        // Also capture release date if missing
+                        const date = tmdbData.release_date || tmdbData.first_air_date;
+                        if (date) releaseDate = date;
+
+                        const metadataUpdate = {
+                            originalLanguage: tmdbData.original_language,
+                            originCountry: tmdbData.origin_country || tmdbData.production_countries?.map((c: any) => c.iso_3166_1) || [],
+                            releaseDate: releaseDate
+                        };
+
                         // 2. SAVE TO DB (Background Path - DO NOT AWAIT)
-                        this.saveTranslationInBackground(movie.tmdbId, movie.mediaType, lang, newTranslation, forceRefresh);
+                        this.saveTranslationInBackground(movie.tmdbId, movie.mediaType, lang, newTranslation, forceRefresh, metadataUpdate);
                     }
                 } catch (err) {
                     // Silent fail, fallback to original
@@ -94,7 +113,11 @@ export class MovieService {
                 title: translationData.title,
                 overview: translationData.overview,
                 posterPath: translationData.posterPath || movie.posterPath,
-                genres: translationData.genres
+                genres: translationData.genres,
+                originalLanguage: movie.originalLanguage, // Start passing these
+                originCountry: movie.originCountry,
+                releaseDate: releaseDate,
+                firstAirDate: releaseDate // Map to both for compatibility
             };
         });
 
@@ -106,7 +129,8 @@ export class MovieService {
         mediaType: string,
         lang: string,
         newTranslation: any,
-        forceRefresh: boolean
+        forceRefresh: boolean,
+        metadataUpdate?: { originalLanguage: string, originCountry: string[], releaseDate?: string }
     ) {
         try {
             if (forceRefresh) {
@@ -118,7 +142,14 @@ export class MovieService {
 
             await Movie.updateOne(
                 { tmdbId: Number(tmdbId) },
-                { $push: { translations: newTranslation } }
+                {
+                    $push: { translations: newTranslation },
+                    $set: metadataUpdate ? {
+                        originalLanguage: metadataUpdate.originalLanguage,
+                        originCountry: metadataUpdate.originCountry,
+                        releaseDate: metadataUpdate.releaseDate
+                    } : {}
+                }
             );
         } catch (error) {
             console.error(`[Localization] Background save failed for ${tmdbId}:`, error);

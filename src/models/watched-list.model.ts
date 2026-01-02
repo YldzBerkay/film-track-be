@@ -9,8 +9,13 @@ export interface IWatchedItem {
     numberOfEpisodes?: number;
     numberOfSeasons?: number;
     genres?: string[];
+    releaseDate?: string;      // YYYY-MM-DD
+    firstAirDate?: string;     // YYYY-MM-DD
+    originalLanguage?: string;
+    originCountry?: string[];
     rating?: number;           // 1-10 integer scale
     feedback?: 'like' | 'dislike' | null;  // Raw sentiment (decoupled from rating)
+    hasReview?: boolean;       // Whether the user wrote a text review
     watchedAt: Date;           // When they watched it
     addedAt: Date;             // When it was added to the list
 }
@@ -50,6 +55,10 @@ const watchedItemSchema = new Schema<IWatchedItem>(
         numberOfEpisodes: Number,
         numberOfSeasons: Number,
         genres: [String],
+        releaseDate: String,
+        firstAirDate: String,
+        originalLanguage: String,
+        originCountry: [String],
         rating: {
             type: Number,
             min: 1,
@@ -66,6 +75,10 @@ const watchedItemSchema = new Schema<IWatchedItem>(
             type: String,
             enum: ['like', 'dislike', null],
             default: null
+        },
+        hasReview: {
+            type: Boolean,
+            default: false
         },
         watchedAt: {
             type: Date,

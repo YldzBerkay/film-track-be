@@ -1114,6 +1114,41 @@ export class UserService {
       list = hydratedList;
     }
 
+    // Hydrate Interaction Status (Watched, Liked, Rated, Reviewed)
+    // We do this if we found a list, regardless of type, so the frontend can filter
+    if (list && list.items) {
+      const { WatchedListService } = await import('./watched-list.service');
+      // Fetch THIS target user's watched list to know their status on these items
+      const watchedList = await WatchedListService.getUserWatchedList(targetUserId);
+
+      if (watchedList && watchedList.items) {
+        const watchedMap = new Map();
+        watchedList.items.forEach((item: any) => {
+          watchedMap.set(`${item.tmdbId}-${item.mediaType}`, item);
+        });
+
+        list.items = list.items.map((item: any) => {
+          const watchedItem = watchedMap.get(`${item.tmdbId}-${item.mediaType}`);
+          if (watchedItem) {
+            return {
+              ...item,
+              isWatched: true,
+              isLiked: watchedItem.feedback === 'like',
+              userRating: watchedItem.rating,
+              hasReview: watchedItem.hasReview
+            };
+          }
+          return {
+            ...item,
+            isWatched: false,
+            isLiked: false,
+            userRating: null,
+            hasReview: false
+          };
+        });
+      }
+    }
+
     return {
       list,
       type,

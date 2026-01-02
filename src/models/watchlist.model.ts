@@ -7,6 +7,10 @@ export interface IWatchlistItem {
     posterPath?: string;
     numberOfEpisodes?: number;
     numberOfSeasons?: number;
+    releaseDate?: string;
+    firstAirDate?: string;
+    originalLanguage?: string;
+    originCountry?: string[];
     addedAt: Date;
 }
 
@@ -39,6 +43,10 @@ const watchlistItemSchema = new Schema<IWatchlistItem>(
         posterPath: String,
         numberOfEpisodes: Number,
         numberOfSeasons: Number,
+        releaseDate: String,
+        firstAirDate: String,
+        originalLanguage: String,
+        originCountry: [String],
         addedAt: {
             type: Date,
             default: Date.now

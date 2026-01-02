@@ -7,6 +7,8 @@ export interface IMovie extends Document {
   overview?: string;
   releaseDate?: string;
   posterPath?: string;
+  originalLanguage?: string;
+  originCountry?: string[];
   moodVector?: {
     adrenaline: number;
     melancholy: number;
@@ -60,6 +62,8 @@ const movieSchema = new Schema<IMovie>(
       posterPath: String,
       genres: [String]
     }],
+    originalLanguage: String,
+    originCountry: [String],
     moodVector: {
       adrenaline: {
         type: Number,
