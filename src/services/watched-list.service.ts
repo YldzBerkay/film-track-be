@@ -321,6 +321,7 @@ export class WatchedListService {
         totalMovies: number;
         totalTvShows: number;
         averageRating: number | null;
+        ratingDist: Record<number, number>;
     }> {
         const watchedList = await this.getUserWatchedList(userId);
 
@@ -329,7 +330,8 @@ export class WatchedListService {
                 totalRuntime: 0,
                 totalMovies: 0,
                 totalTvShows: 0,
-                averageRating: null
+                averageRating: null,
+                ratingDist: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 }
             };
         }
 
@@ -339,13 +341,22 @@ export class WatchedListService {
             .filter(i => i.rating !== undefined && i.rating !== null)
             .map(i => i.rating!);
 
+        const ratingDist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
+        ratings.forEach(r => {
+            const rounded = Math.round(r);
+            if (rounded >= 1 && rounded <= 10) {
+                ratingDist[rounded]++;
+            }
+        });
+
         return {
             totalRuntime: watchedList.totalRuntime,
             totalMovies: movies.length,
             totalTvShows: tvShows.length,
             averageRating: ratings.length > 0
                 ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
-                : null
+                : null,
+            ratingDist
         };
     }
 

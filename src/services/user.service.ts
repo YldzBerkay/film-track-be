@@ -8,6 +8,7 @@ interface UserStats {
   moviesWatched: number;
   episodesWatched: number;
   totalRuntime: number;
+  ratingDist?: Record<number, number>;
 }
 
 interface FavoriteMovie {
@@ -126,6 +127,7 @@ export class UserService {
     }
 
     // Get stats from WatchedListService
+    let ratingDist: Record<number, number> | undefined;
     try {
       const { WatchedListService } = await import('./watched-list.service');
       const stats = await WatchedListService.getStats(user._id.toString());
@@ -134,6 +136,8 @@ export class UserService {
       user.stats.episodesWatched = stats.totalTvShows;
       user.stats.totalRuntime = stats.totalRuntime;
       await user.save();
+
+      ratingDist = stats.ratingDist;
     } catch (error) {
       console.error('Failed to update user stats:', error);
     }
@@ -197,7 +201,12 @@ export class UserService {
         username: user.username,
         name: user.name,
         // NO email in public profile
-        stats: canViewStats ? user.stats : undefined,
+        stats: canViewStats ? {
+          moviesWatched: user.stats.moviesWatched,
+          episodesWatched: user.stats.episodesWatched,
+          totalRuntime: user.stats.totalRuntime,
+          ratingDist
+        } : undefined,
         followersCount: user.followersCount,
         followingCount: user.followingCount,
         favoriteMovies: user.favoriteMovies,
@@ -306,6 +315,7 @@ export class UserService {
     }
 
     // Get stats from WatchedListService
+    let ratingDist: Record<number, number> | undefined;
     try {
       const { WatchedListService } = await import('./watched-list.service');
       const stats = await WatchedListService.getStats(user._id.toString());
@@ -313,6 +323,7 @@ export class UserService {
       user.stats.moviesWatched = stats.totalMovies;
       user.stats.episodesWatched = stats.totalTvShows;
       user.stats.totalRuntime = stats.totalRuntime;
+      ratingDist = stats.ratingDist;
       await user.save();
     } catch (error) {
       console.error('Failed to update user stats:', error);
@@ -330,7 +341,12 @@ export class UserService {
         username: user.username,
         name: user.name,
         email: user.email,
-        stats: user.stats,
+        stats: {
+          moviesWatched: user.stats.moviesWatched,
+          episodesWatched: user.stats.episodesWatched,
+          totalRuntime: user.stats.totalRuntime,
+          ratingDist
+        },
         followersCount: user.followersCount,
         followingCount: user.followingCount,
         favoriteMovies: user.favoriteMovies,
