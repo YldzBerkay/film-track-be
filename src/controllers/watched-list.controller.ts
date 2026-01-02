@@ -16,6 +16,9 @@ export class WatchedListController {
             const lang = req.query.lang as string;
             const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
 
+            // Calculate total count before slicing
+            const totalCount = watchedList.items ? watchedList.items.length : 0;
+
             if (limit && limit > 0 && watchedList.items) {
                 watchedList.items = watchedList.items.slice(0, limit);
             }
@@ -26,7 +29,7 @@ export class WatchedListController {
 
             res.json({
                 success: true,
-                data: { watchedList }
+                data: { watchedList, totalCount }
             });
         } catch (error) {
             console.error('Get watched list error:', error);

@@ -39,9 +39,19 @@ export class WatchlistController {
             const userId = req.user!.id;
             const watchlistsDocs = await WatchlistService.getUserWatchlists(userId);
             const lang = req.query.lang as string;
+            const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
 
             const watchlists = await Promise.all(watchlistsDocs.map(async (doc) => {
                 const list = (doc as any).toObject ? (doc as any).toObject() : doc;
+
+                // Calculate total count
+                list.totalCount = list.items ? list.items.length : 0;
+
+                // Apply limit
+                if (limit && limit > 0 && list.items) {
+                    list.items = list.items.slice(0, limit);
+                }
+
                 if (lang) {
                     list.items = await MovieService.hydrateItems(list.items, lang) as any;
                 }
@@ -256,6 +266,9 @@ export class WatchlistController {
             const lang = req.query.lang as string;
             const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
 
+            // Calculate total count before slicing
+            const totalCount = watchlist.items ? watchlist.items.length : 0;
+
             if (limit && limit > 0 && watchlist.items) {
                 watchlist.items = watchlist.items.slice(0, limit);
             }
@@ -266,7 +279,7 @@ export class WatchlistController {
 
             res.json({
                 success: true,
-                data: { watchlist }
+                data: { watchlist, totalCount }
             });
         } catch (error) {
             console.error('Get default watchlist error:', error);

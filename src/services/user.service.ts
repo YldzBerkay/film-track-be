@@ -853,11 +853,12 @@ export class UserService {
   static async getUserPublicLists(
     targetUserId: string,
     viewerId?: string,
-    lang?: string
+    lang?: string,
+    limit?: number
   ): Promise<{
-    watchedList: any | null;
-    defaultWatchlist: any | null;
-    customWatchlists: any[];
+    watchedList: { list: any | null; totalCount: number };
+    defaultWatchlist: { list: any | null; totalCount: number };
+    customWatchlists: Array<{ list: any; totalCount: number }>;
   }> {
     const { WatchedListService } = await import('./watched-list.service');
     const { WatchlistService } = await import('./watchlist.service');
@@ -890,8 +891,8 @@ export class UserService {
     if (!canViewLibrary) {
       // Return empty data if library is private
       return {
-        watchedList: null,
-        defaultWatchlist: null,
+        watchedList: { list: null, totalCount: 0 },
+        defaultWatchlist: { list: null, totalCount: 0 },
         customWatchlists: []
       };
     }
@@ -906,9 +907,13 @@ export class UserService {
     };
 
     // Fetch watched list
-    let watchedList = await WatchedListService.getUserWatchedList(targetUserId);
-    if (watchedList && !isListVisible(watchedList.privacyStatus)) {
-      watchedList = null;
+    let watchedListData = await WatchedListService.getUserWatchedList(targetUserId);
+    let watchedTotalCount = 0;
+    if (watchedListData && !isListVisible(watchedListData.privacyStatus)) {
+      watchedListData = null;
+    }
+    if (watchedListData) {
+      watchedTotalCount = watchedListData.items.length;
     }
 
     // Fetch all watchlists
@@ -918,31 +923,50 @@ export class UserService {
     const visibleWatchlists = allWatchlists.filter(list => isListVisible(list.privacyStatus));
 
     // Separate default and custom
-    let defaultWatchlist = visibleWatchlists.find(l => l.isDefault) || null;
-    const customWatchlists = visibleWatchlists.filter(l => !l.isDefault);
+    let defaultWatchlistData = visibleWatchlists.find(l => l.isDefault) || null;
+    const customWatchlistsData = visibleWatchlists.filter(l => !l.isDefault);
+
+    let defaultTotalCount = defaultWatchlistData ? defaultWatchlistData.items.length : 0;
+    const customTotalCounts = customWatchlistsData.map(l => l.items.length);
+
+    // Apply limit to items if specified
+    if (limit) {
+      if (watchedListData) {
+        watchedListData = { ...watchedListData };
+        watchedListData.items = watchedListData.items.slice(0, limit);
+      }
+      if (defaultWatchlistData) {
+        const slicedItems = defaultWatchlistData.items.slice(0, limit);
+        defaultWatchlistData = { ...defaultWatchlistData, items: slicedItems } as any;
+      }
+      for (let i = 0; i < customWatchlistsData.length; i++) {
+        customWatchlistsData[i] = { ...customWatchlistsData[i] } as any;
+        (customWatchlistsData[i] as any).items = customWatchlistsData[i].items.slice(0, limit);
+      }
+    }
 
     // Hydrate items with language-specific titles if lang is provided
     if (lang) {
-      if (watchedList) {
-        watchedList = { ...watchedList };
-        watchedList.items = await MovieService.hydrateItems(watchedList.items, lang) as any;
+      if (watchedListData) {
+        watchedListData = { ...watchedListData };
+        watchedListData.items = await MovieService.hydrateItems(watchedListData.items, lang) as any;
       }
-      if (defaultWatchlist) {
-        const hydratedDefault = { ...defaultWatchlist } as any;
-        hydratedDefault.items = await MovieService.hydrateItems(defaultWatchlist.items, lang) as any;
-        defaultWatchlist = hydratedDefault;
+      if (defaultWatchlistData) {
+        const hydratedDefault = { ...defaultWatchlistData } as any;
+        hydratedDefault.items = await MovieService.hydrateItems(defaultWatchlistData.items, lang) as any;
+        defaultWatchlistData = hydratedDefault;
       }
-      for (let i = 0; i < customWatchlists.length; i++) {
-        const hydratedCustom = { ...customWatchlists[i] } as any;
-        hydratedCustom.items = await MovieService.hydrateItems(customWatchlists[i].items, lang) as any;
-        customWatchlists[i] = hydratedCustom;
+      for (let i = 0; i < customWatchlistsData.length; i++) {
+        const hydratedCustom = { ...customWatchlistsData[i] } as any;
+        hydratedCustom.items = await MovieService.hydrateItems(customWatchlistsData[i].items, lang) as any;
+        customWatchlistsData[i] = hydratedCustom;
       }
     }
 
     return {
-      watchedList,
-      defaultWatchlist,
-      customWatchlists
+      watchedList: { list: watchedListData, totalCount: watchedTotalCount },
+      defaultWatchlist: { list: defaultWatchlistData, totalCount: defaultTotalCount },
+      customWatchlists: customWatchlistsData.map((list, i) => ({ list, totalCount: customTotalCounts[i] }))
     };
   }
 

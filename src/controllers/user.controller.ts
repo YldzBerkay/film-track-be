@@ -270,8 +270,9 @@ export class UserController {
       const { userId: targetUserId } = req.params;
       const viewerId = req.user?.id; // May be undefined if not authenticated
       const lang = req.query.lang as string;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
 
-      const result = await UserService.getUserPublicLists(targetUserId, viewerId, lang);
+      const result = await UserService.getUserPublicLists(targetUserId, viewerId, lang, limit);
 
       res.status(200).json({
         success: true,
