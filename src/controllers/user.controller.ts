@@ -260,5 +260,53 @@ export class UserController {
       });
     }
   }
+
+  /**
+   * GET /api/users/:userId/lists
+   * Get a user's lists respecting privacy settings
+   */
+  static async getUserPublicLists(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId: targetUserId } = req.params;
+      const viewerId = req.user?.id; // May be undefined if not authenticated
+      const lang = req.query.lang as string;
+
+      const result = await UserService.getUserPublicLists(targetUserId, viewerId, lang);
+
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to get user lists'
+      });
+    }
+  }
+
+  /**
+   * GET /api/users/:userId/lists/:listType
+   * Get a specific list for a user with privacy filtering
+   */
+  static async getUserListDetail(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { userId: targetUserId, listType } = req.params;
+      const viewerId = req.user?.id;
+      const lang = req.query.lang as string;
+
+      const result = await UserService.getUserListDetail(targetUserId, listType, viewerId, lang);
+
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to get user list'
+      });
+    }
+  }
 }
 

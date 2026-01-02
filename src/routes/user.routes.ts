@@ -33,6 +33,12 @@ router.delete('/:userId/follower', authMiddleware, UserController.removeFollower
 // Get user activities (public)
 router.get('/:userId/activities', optionalAuthMiddleware, ActivityController.getProfileActivities);
 
+// Get user's public lists (public with optional auth for privacy checks)
+router.get('/:userId/lists', optionalAuthMiddleware, UserController.getUserPublicLists);
+
+// Get a specific list for a user (public with optional auth for privacy checks)
+router.get('/:userId/lists/:listType', optionalAuthMiddleware, UserController.getUserListDetail);
+
 // Public route with optional auth - get profile by username
 router.get('/:username', optionalAuthMiddleware, UserController.getProfile);
 

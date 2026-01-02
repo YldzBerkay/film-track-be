@@ -846,5 +846,241 @@ export class UserService {
       session.endSession();
     }
   }
+
+  /**
+   * Get a user's public lists (watched list and watchlists) with privacy filtering
+   */
+  static async getUserPublicLists(
+    targetUserId: string,
+    viewerId?: string,
+    lang?: string
+  ): Promise<{
+    watchedList: any | null;
+    defaultWatchlist: any | null;
+    customWatchlists: any[];
+  }> {
+    const { WatchedListService } = await import('./watched-list.service');
+    const { WatchlistService } = await import('./watchlist.service');
+    const { MovieService } = await import('./movie.service');
+
+    // Get target user to check privacy settings and friendship
+    const targetUser = await User.findById(targetUserId).select('privacySettings following followers');
+    if (!targetUser) {
+      throw new Error('User not found');
+    }
+
+    // Check if viewer is a friend (mutual follower)
+    let isFriend = false;
+    const isSelf = viewerId === targetUserId;
+
+    if (viewerId && !isSelf) {
+      const viewerFollowsTarget = targetUser.followers.some(
+        (id) => id.toString() === viewerId
+      );
+      const targetFollowsViewer = targetUser.following.some(
+        (id) => id.toString() === viewerId
+      );
+      isFriend = viewerFollowsTarget && targetFollowsViewer;
+    }
+
+    // Get profile-level library privacy setting
+    const libraryPrivacy = targetUser.privacySettings?.library ?? 'public';
+    const canViewLibrary = this.canView(libraryPrivacy, isFriend, isSelf);
+
+    if (!canViewLibrary) {
+      // Return empty data if library is private
+      return {
+        watchedList: null,
+        defaultWatchlist: null,
+        customWatchlists: []
+      };
+    }
+
+    // Helper function to check if a list is visible based on its privacy status
+    const isListVisible = (privacyStatus: number): boolean => {
+      // 0 = public, 1 = friends, 2 = private (nobody)
+      if (isSelf) return true;
+      if (privacyStatus === 0) return true;
+      if (privacyStatus === 1 && isFriend) return true;
+      return false;
+    };
+
+    // Fetch watched list
+    let watchedList = await WatchedListService.getUserWatchedList(targetUserId);
+    if (watchedList && !isListVisible(watchedList.privacyStatus)) {
+      watchedList = null;
+    }
+
+    // Fetch all watchlists
+    const allWatchlists = await WatchlistService.getUserWatchlists(targetUserId);
+
+    // Filter by visibility
+    const visibleWatchlists = allWatchlists.filter(list => isListVisible(list.privacyStatus));
+
+    // Separate default and custom
+    let defaultWatchlist = visibleWatchlists.find(l => l.isDefault) || null;
+    const customWatchlists = visibleWatchlists.filter(l => !l.isDefault);
+
+    // Hydrate items with language-specific titles if lang is provided
+    if (lang) {
+      if (watchedList) {
+        watchedList = { ...watchedList };
+        watchedList.items = await MovieService.hydrateItems(watchedList.items, lang) as any;
+      }
+      if (defaultWatchlist) {
+        const hydratedDefault = { ...defaultWatchlist } as any;
+        hydratedDefault.items = await MovieService.hydrateItems(defaultWatchlist.items, lang) as any;
+        defaultWatchlist = hydratedDefault;
+      }
+      for (let i = 0; i < customWatchlists.length; i++) {
+        const hydratedCustom = { ...customWatchlists[i] } as any;
+        hydratedCustom.items = await MovieService.hydrateItems(customWatchlists[i].items, lang) as any;
+        customWatchlists[i] = hydratedCustom;
+      }
+    }
+
+    return {
+      watchedList,
+      defaultWatchlist,
+      customWatchlists
+    };
+  }
+
+  /**
+   * Get a specific list for a user with privacy filtering
+   * listType can be: 'watched', 'watchlist', or a custom list ID
+   */
+  static async getUserListDetail(
+    targetUserId: string,
+    listType: string,
+    viewerId?: string,
+    lang?: string
+  ): Promise<{
+    list: any | null;
+    type: 'watched' | 'watchlist' | 'custom';
+    ownerUsername: string;
+    ownerAvatar: string | null;
+    canView: boolean;
+    privacyMessage?: string;
+  }> {
+    const { WatchedListService } = await import('./watched-list.service');
+    const { WatchlistService } = await import('./watchlist.service');
+    const { MovieService } = await import('./movie.service');
+
+    // Get target user
+    const targetUser = await User.findById(targetUserId).select('username avatar privacySettings following followers');
+    if (!targetUser) {
+      throw new Error('User not found');
+    }
+
+    // Check if viewer is a friend (mutual follower)
+    let isFriend = false;
+    const isSelf = viewerId === targetUserId;
+
+    if (viewerId && !isSelf) {
+      const viewerFollowsTarget = targetUser.followers.some(
+        (id) => id.toString() === viewerId
+      );
+      const targetFollowsViewer = targetUser.following.some(
+        (id) => id.toString() === viewerId
+      );
+      isFriend = viewerFollowsTarget && targetFollowsViewer;
+    }
+
+    // Get profile-level library privacy setting
+    const libraryPrivacy = targetUser.privacySettings?.library ?? 'public';
+    const canViewLibrary = this.canView(libraryPrivacy, isFriend, isSelf);
+
+    if (!canViewLibrary) {
+      return {
+        list: null,
+        type: 'watched',
+        ownerUsername: targetUser.username,
+        ownerAvatar: targetUser.avatar,
+        canView: false,
+        privacyMessage: 'This library is private'
+      };
+    }
+
+    // Helper function to check if a list is visible based on its privacy status
+    const isListVisible = (privacyStatus: number): boolean => {
+      if (isSelf) return true;
+      if (privacyStatus === 0) return true;
+      if (privacyStatus === 1 && isFriend) return true;
+      return false;
+    };
+
+    let list: any = null;
+    let type: 'watched' | 'watchlist' | 'custom' = 'watched';
+
+    if (listType === 'watched') {
+      // Fetch watched list
+      list = await WatchedListService.getUserWatchedList(targetUserId);
+      type = 'watched';
+
+      if (list && !isListVisible(list.privacyStatus)) {
+        return {
+          list: null,
+          type,
+          ownerUsername: targetUser.username,
+          ownerAvatar: targetUser.avatar,
+          canView: false,
+          privacyMessage: 'This list is private'
+        };
+      }
+    } else if (listType === 'watchlist') {
+      // Fetch default watchlist
+      list = await WatchlistService.getDefaultWatchlist(targetUserId);
+      type = 'watchlist';
+
+      if (list && !isListVisible(list.privacyStatus)) {
+        return {
+          list: null,
+          type,
+          ownerUsername: targetUser.username,
+          ownerAvatar: targetUser.avatar,
+          canView: false,
+          privacyMessage: 'This list is private'
+        };
+      }
+    } else {
+      // Custom list ID - fetch by ID but verify it belongs to target user
+      const allWatchlists = await WatchlistService.getUserWatchlists(targetUserId);
+      const customList = allWatchlists.find(l => l._id.toString() === listType);
+
+      if (!customList) {
+        throw new Error('List not found');
+      }
+
+      list = customList;
+      type = 'custom';
+
+      if (!isListVisible(customList.privacyStatus)) {
+        return {
+          list: null,
+          type,
+          ownerUsername: targetUser.username,
+          ownerAvatar: targetUser.avatar,
+          canView: false,
+          privacyMessage: 'This list is private'
+        };
+      }
+    }
+
+    // Hydrate items with language-specific titles if lang is provided
+    if (list && lang) {
+      const hydratedList = { ...list };
+      hydratedList.items = await MovieService.hydrateItems(list.items, lang) as any;
+      list = hydratedList;
+    }
+
+    return {
+      list,
+      type,
+      ownerUsername: targetUser.username,
+      ownerAvatar: targetUser.avatar,
+      canView: true
+    };
+  }
 }
 
