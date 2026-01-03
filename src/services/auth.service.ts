@@ -69,13 +69,13 @@ export class AuthService {
     await WatchlistService.createDefaultWatchlist(user._id.toString());
     await WatchedListService.createDefaultWatchedList(user._id.toString());
 
-    // Create Welcome Activity
-    try {
-      await ActivityService.createSystemActivity(user._id.toString(), 'USER_JOINED', 'Welcome to the community!');
-    } catch (e) {
-      console.error('Failed to create welcome activity', e);
-      // Continue even if welcome activity fails
-    }
+    // Create Welcome Activity - DISABLED
+    // try {
+    //   await ActivityService.createSystemActivity(user._id.toString(), 'USER_JOINED', 'Welcome to the community!');
+    // } catch (e) {
+    //   console.error('Failed to create welcome activity', e);
+    //   // Continue even if welcome activity fails
+    // }
 
     // Generate tokens
     const accessToken = this.generateAccessToken(user._id.toString());

@@ -7,7 +7,8 @@ export class EpisodeRatingService {
         tvId: number,
         seasonNumber: number,
         episodeNumber: number,
-        rating: number
+        rating: number,
+        options?: { skipActivity: boolean }
     ): Promise<IEpisodeRating> {
         const existingRating = await EpisodeRating.findOne({
             userId,

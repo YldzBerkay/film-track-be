@@ -232,69 +232,6 @@ export class ActivityService {
         }
       },
 
-      // Stage 4: Anti-Spam Grouping (Bulk Imports)
-      // Group contiguous bulk imports by the same user within the same hour
-      {
-        $group: {
-          _id: {
-            // If it's a bulk import, group by User + Hour + Type. 
-            // Otherwise, keep unique ID (no grouping).
-            key: {
-              $cond: {
-                if: { $eq: ["$type", "bulk_import"] },
-                then: {
-                  u: "$userId",
-                  h: { $hour: "$createdAt" },
-                  d: { $dayOfYear: "$createdAt" }, // Include day to avoid hour collisions across days
-                  y: { $year: "$createdAt" },
-                  t: "bulk_import"
-                },
-                else: "$_id"
-              }
-            }
-          },
-          // Accumulate fields
-          doc: { $first: "$$ROOT" }, // Keep the first document as the "Main" one
-          count: { $sum: 1 },         // Count items in this group
-          aggregatedMedia: {
-            // Collect titles for the summary card
-            $push: {
-              title: "$mediaTitle",
-              poster: "$mediaPosterPath",
-              id: "$tmdbId"
-            }
-          }
-        }
-      },
-
-      // Stage 5: Restore Document Structure & Finalize
-      {
-        $addFields: {
-          // If grouped (count > 1), update the document to look like a summary
-          // We override the 'doc' fields with summary info
-          "doc.mediaTitle": {
-            $cond: {
-              if: { $gt: ["$count", 1] },
-              then: { $concat: ["Imported ", { $toString: "$count" }, " titles"] },
-              else: "$doc.mediaTitle"
-            }
-          },
-          // We can attach the list of imported items to a new field if needed
-          "doc.groupedActivities": {
-            $cond: {
-              if: { $gt: ["$count", 1] },
-              then: "$aggregatedMedia",
-              else: "$$REMOVE"
-            }
-          },
-          // Fix ID: Grouping changes _id. Restore original _id for non-grouped, or generate new one.
-          // For simplicity, we keep the doc._id which is the _id of the first item in the group.
-          "_id": "$doc._id",
-          "rankingScore": "$doc.rankingScore", // Keep the score of the representative item
-          "createdAt": "$doc.createdAt"
-        }
-      },
-
       // Stage 6: Sort by Smart Ranking
       { $sort: { rankingScore: -1 } },
 
@@ -309,7 +246,7 @@ export class ActivityService {
             {
               $lookup: {
                 from: "users",
-                localField: "doc.userId",
+                localField: "userId",
                 foreignField: "_id",
                 as: "user"
               }
@@ -320,27 +257,27 @@ export class ActivityService {
             // We will map the structure to match frontend expectations
             {
               $project: {
-                _id: "$doc._id",
-                type: "$doc.type",
-                mediaType: "$doc.mediaType",
-                tmdbId: "$doc.tmdbId",
-                mediaTitle: "$doc.mediaTitle", // This might be "Imported X titles" now
-                mediaPosterPath: "$doc.mediaPosterPath",
-                seasonNumber: "$doc.seasonNumber",
-                episodeNumber: "$doc.episodeNumber",
-                episodeTitle: "$doc.episodeTitle",
-                rating: "$doc.rating",
-                reviewText: "$doc.reviewText",
-                isSpoiler: "$doc.isSpoiler",
-                isMoodPick: "$doc.isMoodPick",
-                genres: "$doc.genres",
-                createdAt: "$doc.createdAt",
-                updatedAt: "$doc.updatedAt",
-                likes: "$doc.likes",
-                likesCount: "$doc.likesCount",
-                dislikesCount: "$doc.dislikesCount",
-                commentCount: "$doc.commentCount",
-                groupedActivities: "$doc.groupedActivities", // Pass the grouped list
+                _id: 1,
+                type: 1,
+                mediaType: 1,
+                tmdbId: 1,
+                mediaTitle: 1,
+                mediaPosterPath: 1,
+                seasonNumber: 1,
+                episodeNumber: 1,
+                episodeTitle: 1,
+                rating: 1,
+                reviewText: 1,
+                isSpoiler: 1,
+                isMoodPick: 1,
+                genres: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                likes: 1,
+                likesCount: 1, // $ifNull not needed if schema defaults 0, but safe to keep if computed start
+                dislikesCount: 1,
+                commentCount: 1,
+                data: 1, // Include 'data' field for bulk_import
                 userId: {
                   _id: "$user._id",
                   username: "$user.username",
@@ -348,8 +285,7 @@ export class ActivityService {
                   avatar: "$user.avatar",
                   mastery: "$user.mastery"
                 },
-                rankingScore: 1, // Debug info
-                // Map legacy fields if necessary
+                rankingScore: 1
               }
             }
           ]

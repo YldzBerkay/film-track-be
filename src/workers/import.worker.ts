@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Worker, Job } from 'bullmq';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
@@ -9,10 +10,8 @@ import { WatchlistService } from '../services/watchlist.service';
 import { EpisodeRatingService } from '../services/episode-rating.service';
 import { socketService } from '../services/socket.service';
 import { NotificationService } from '../services/notification.service';
-import { Activity } from '../models/activity.model'; // Direct model access for Binge logic if service missing
+import { Activity } from '../models/activity.model';
 
-import dotenv from 'dotenv';
-dotenv.config();
 
 const connection = {
     host: process.env.REDIS_HOST || 'localhost',
@@ -76,7 +75,7 @@ async function handleBingeActivity(userId: string, showId: number, showName: str
 }
 
 export const importWorker = new Worker<ImportJobData>(IMPORT_QUEUE_NAME, async (job: Job<ImportJobData>) => {
-    const { item, userId, mode, listId, currentNr, totalNr } = job.data;
+    const { item, userId, mode, listId, currentNr, totalNr, jobId } = job.data;
 
     // Notify Progress (Start)
     const progressPercent = Math.round(((currentNr - 1) / totalNr) * 100);
@@ -129,14 +128,10 @@ export const importWorker = new Worker<ImportJobData>(IMPORT_QUEUE_NAME, async (
                         result.id,
                         episodeInfo.seasonNumber,
                         episodeInfo.episodeNumber,
-                        item.rating
+                        item.rating,
+                        { skipActivity: true }
                     );
                 }
-
-                // B) CREATE BINGE ACTIVITY (Smart Handling)
-                // Do NOT add to WatchedList (Timeline)
-                await handleBingeActivity(userId, result.id, (result as any).name, item.watchedAt || new Date());
-
             } else {
                 // Movie or Full Show
                 await WatchedListService.addItem(userId, {
@@ -147,21 +142,15 @@ export const importWorker = new Worker<ImportJobData>(IMPORT_QUEUE_NAME, async (
                     runtime,
                     rating: item.rating,
                     watchedAt: item.watchedAt,
-                    skipActivity: true // Suppress individual activity creation to avoid spam
-                    // User wants "clean timeline". Single adds usually create activity.
-                    // If batch import, we might want to suppress individual "watched movie" activities if they spam?
-                    // But requirement was specifically for Binge.
-                    // Let's suppress here and rely on Summary Activity if provided?
-                    // Or keep default.
+                    skipActivity: true // Suppress individual activity creation
                 });
             }
         } else if (mode === 'custom-list' && listId) {
             // Add to custom list
-            // If Episode -> Add Parent Show
             await WatchlistService.addItem(listId, userId, {
                 tmdbId: result.id,
-                mediaType: 'tv', // Always TV for episodes/shows
-                title: (result as any).name
+                mediaType: 'tv', // Always TV for episodes/shows based on context? Or generic.
+                title: (result as any).name || (result as any).title
             });
 
             // And Save Rating if Episode
@@ -171,12 +160,28 @@ export const importWorker = new Worker<ImportJobData>(IMPORT_QUEUE_NAME, async (
                     result.id,
                     episodeInfo.seasonNumber,
                     episodeInfo.episodeNumber,
-                    item.rating
+                    item.rating,
+                    { skipActivity: true }
                 );
             }
         }
 
-        // Notify Progress (Complete)
+        // 3. Aggregate for Bulk Report
+        // Store poster in Redis List for the summary card (avoid duplicates)
+        const poster = result?.poster_path;
+        if (poster && jobId) {
+            const listKey = `import_posters:${jobId}`;
+            // Check if poster already exists in list
+            const existingPosters = await redis.lrange(listKey, 0, -1);
+            const isDuplicate = existingPosters.includes(poster);
+
+            // Only keep first ~9 unique items for the visual grid
+            if (!isDuplicate && existingPosters.length < 9) {
+                await redis.rpush(listKey, poster);
+            }
+        }
+
+        // Notify Progress (Success)
         const completePercent = Math.round((currentNr / totalNr) * 100);
         socketService.emitToUser(userId, 'import:progress', {
             percent: completePercent,
@@ -184,38 +189,88 @@ export const importWorker = new Worker<ImportJobData>(IMPORT_QUEUE_NAME, async (
             item: item.title
         });
 
-        // Check Batch Completion
-        // Check Batch Completion
-        const { jobId } = job.data;
-        if (jobId) {
-            const remaining = await redis.decr(`import_batch:${jobId}`);
-            if (remaining <= 0) {
-                const message = mode === 'custom-list'
-                    ? `Your list import is complete! Processed ${totalNr} items.`
-                    : `Your watch history import is complete! Processed ${totalNr} items.`;
-
-                await NotificationService.createAndSendBulk([userId], 'import_completed', message, {
-                    batchId: jobId,
-                    count: totalNr,
-                    mode
-                });
-
-                // Cleanup
-                await redis.del(`import_batch:${jobId}`);
-                console.log(`Import Batch ${jobId} Completed. Notification sent.`);
-            }
-        }
-
-        return { success: true, title: item.title };
-
     } catch (err: any) {
         console.error(`Import Job Failed for ${item.title}:`, err.message);
+
+        // Track failure
+        if (jobId) {
+            await redis.rpush(`import_failed:${jobId}`, item.title || 'Unknown');
+        }
+
+        // Notify User of error (but don't fail job)
         socketService.emitToUser(userId, 'import:error', {
             item: item.title,
             error: err.message
         });
-        throw err;
+
+        // Return success=true to BullMQ so it doesn't retry infinitely or mark as failed
+        // We are handling the failure "gracefully"
     }
+
+    // 4. Batch Completion (Executed UNCONDITIONALLY)
+    if (jobId) {
+        const remaining = await redis.decr(`import_batch:${jobId}`);
+        if (remaining <= 0) {
+            // FINALIZE BATCH
+            try {
+                // Get sample posters
+                const samplePosters = await redis.lrange(`import_posters:${jobId}`, 0, -1);
+
+                // Get failed items
+                const failedItems = await redis.lrange(`import_failed:${jobId}`, 0, -1);
+                const successCount = totalNr - failedItems.length;
+
+                // Create Summary Activity (Only if we imported something)
+                if (successCount > 0) {
+                    await Activity.create({
+                        userId,
+                        type: 'bulk_import',
+                        mediaType: 'other', // Valid now
+                        tmdbId: 0,
+                        mediaTitle: `Imported ${successCount} items`,
+                        data: {
+                            importedCount: successCount,
+                            samplePosters: samplePosters,
+                            source: 'Import'
+                        },
+                        createdAt: new Date()
+                    });
+                }
+
+                // Construct Message
+                let message: string;
+                if (mode === 'custom-list') {
+                    message = `Your list import is complete! Imported ${successCount} items.`;
+                } else {
+                    message = `Your watch history import is complete! Imported ${successCount} items.`;
+                }
+
+                if (failedItems.length > 0) {
+                    message += ` Skipped ${failedItems.length} items (not found).`;
+                }
+
+                await NotificationService.createAndSendBulk([userId], 'import_completed', message, {
+                    batchId: jobId,
+                    count: successCount,
+                    skipped: failedItems.length,
+                    failedItems: failedItems.slice(0, 5), // Preview
+                    mode
+                });
+
+                console.log(`Import Batch ${jobId} Completed. Success: ${successCount}, Skipped: ${failedItems.length}`);
+
+            } catch (completionErr) {
+                console.error('Error finalizing import batch:', completionErr);
+            } finally {
+                // Cleanup
+                await redis.del(`import_batch:${jobId}`);
+                await redis.del(`import_posters:${jobId}`);
+                await redis.del(`import_failed:${jobId}`);
+            }
+        }
+    }
+
+    return { success: true };
 
 }, {
     connection,

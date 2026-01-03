@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IActivity extends Document {
   userId: mongoose.Types.ObjectId;
   type: 'movie_watched' | 'tv_episode_watched' | 'tv_show_watched' | 'review' | 'rating' | 'bulk_import' | 'system' | 'season_binge';
-  mediaType: 'movie' | 'tv_show' | 'tv_episode';
+  mediaType: 'movie' | 'tv_show' | 'tv_episode' | 'mixed' | 'other';
   tmdbId: number;
   mediaTitle: string;
   mediaPosterPath: string | null;
@@ -43,7 +43,7 @@ const activitySchema = new Schema<IActivity>(
     },
     mediaType: {
       type: String,
-      enum: ['movie', 'tv_show', 'tv_episode'],
+      enum: ['movie', 'tv_show', 'tv_episode', 'mixed', 'other'],
       required: true
     },
     tmdbId: {
