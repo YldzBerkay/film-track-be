@@ -657,7 +657,7 @@ export class ActivityService {
 
   static async getActivityById(activityId: string) {
     return Activity.findById(activityId)
-      .populate('userId', 'username name mastery')
+      .populate('userId', 'username name mastery avatar')
       .lean();
   }
 
