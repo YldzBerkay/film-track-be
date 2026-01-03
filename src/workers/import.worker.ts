@@ -225,9 +225,9 @@ export const importWorker = new Worker<ImportJobData>(IMPORT_QUEUE_NAME, async (
                     await Activity.create({
                         userId,
                         type: 'bulk_import',
-                        mediaType: 'other', // Valid now
+                        mediaType: 'other',
                         tmdbId: 0,
-                        mediaTitle: `Imported ${successCount} items`,
+                        mediaTitle: 'activity.bulkImportTitle', // Translation key for frontend
                         data: {
                             importedCount: successCount,
                             samplePosters: samplePosters,

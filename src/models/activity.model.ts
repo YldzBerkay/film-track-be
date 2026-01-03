@@ -15,6 +15,11 @@ export interface IActivity extends Document {
   isSpoiler: boolean;
   isMoodPick?: boolean;
   genres?: string[];
+  data?: {
+    importedCount?: number;
+    samplePosters?: string[];
+    source?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
   likes: mongoose.Types.ObjectId[];
@@ -69,6 +74,10 @@ const activitySchema = new Schema<IActivity>(
       default: false
     },
     genres: [String],
+    data: {
+      type: Schema.Types.Mixed,
+      default: null
+    },
     likes: [{
       type: Schema.Types.ObjectId,
       ref: 'User'

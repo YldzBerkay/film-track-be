@@ -31,6 +31,7 @@ export class NotificationController {
                         type: n.type,
                         message: n.message,
                         fromUser: n.fromUser,
+                        data: n.data,
                         read: n.read,
                         createdAt: n.createdAt
                     })),
