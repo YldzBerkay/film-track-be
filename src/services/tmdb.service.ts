@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { getTMDBLanguage } from '../config/i18n';
+import { TMDB_GENRE_MAP } from '../utils/tmdb-genre-map';
 
 export interface TMDBMovie {
   id: number;
@@ -426,7 +427,17 @@ export class TMDBService {
           ...langParams
         }
       });
-      return response.data;
+      const data = response.data;
+
+      // Override genres with English standardization
+      if (data.genres) {
+        data.genres = data.genres.map((g: any) => ({
+          ...g,
+          name: TMDB_GENRE_MAP[g.id] || g.name // Fallback to original if not in map
+        }));
+      }
+
+      return data;
     } catch (error) {
       console.error('TMDb Movie Details Error:', error);
       throw new Error('Failed to get movie details');
@@ -441,7 +452,17 @@ export class TMDBService {
           ...this.getLanguageParams(lang)
         }
       });
-      return response.data;
+      const data = response.data;
+
+      // Override genres with English standardization
+      if (data.genres) {
+        data.genres = data.genres.map((g: any) => ({
+          ...g,
+          name: TMDB_GENRE_MAP[g.id] || g.name
+        }));
+      }
+
+      return data;
     } catch (error) {
       console.error('TMDb TV Show Details Error:', error);
       throw new Error('Failed to get TV show details');
@@ -497,8 +518,8 @@ export class TMDBService {
         ?.slice(0, 10)
         .map((kw) => kw.name) || [];
 
-      // Extract genre names
-      const genres = details.genres?.map((g) => g.name) || [];
+      // Extract genre names (Standardized)
+      const genres = details.genres?.map((g) => TMDB_GENRE_MAP[g.id] || g.name) || [];
 
       return {
         tmdbId: details.id,
