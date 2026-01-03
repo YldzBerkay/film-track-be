@@ -268,7 +268,7 @@ const userSchema = new Schema<IUser>(
       },
       title: {
         type: String,
-        default: 'Acemi İzleyici'
+        default: 'novice'
       }
     },
     subscription: {

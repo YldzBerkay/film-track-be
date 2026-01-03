@@ -1,5 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import mongoose from 'mongoose';
+import Redis from 'ioredis';
 import { IMPORT_QUEUE_NAME } from '../queues/import.queue';
 import { ImportItem } from '../services/import-adapters';
 import { TMDBService } from '../services/tmdb.service';
@@ -7,6 +8,7 @@ import { WatchedListService } from '../services/watched-list.service';
 import { WatchlistService } from '../services/watchlist.service';
 import { EpisodeRatingService } from '../services/episode-rating.service';
 import { socketService } from '../services/socket.service';
+import { NotificationService } from '../services/notification.service';
 import { Activity } from '../models/activity.model'; // Direct model access for Binge logic if service missing
 
 import dotenv from 'dotenv';
@@ -17,6 +19,8 @@ const connection = {
     port: parseInt(process.env.REDIS_PORT || '6379'),
     password: process.env.REDIS_PASSWORD || undefined
 };
+
+const redis = new Redis(connection);
 
 interface ImportJobData {
     item: ImportItem;
@@ -62,7 +66,7 @@ async function handleBingeActivity(userId: string, showId: number, showName: str
         await Activity.create({
             userId,
             type: 'season_binge',
-            mediaType: 'tv', // It is TV
+            mediaType: 'tv_show', // It is TV
             tmdbId: showId,
             mediaTitle: `Watched 1 episodes of ${showName || 'TV Show'}`,
             mediaPosterPath: null, // Could fetch
@@ -179,6 +183,28 @@ export const importWorker = new Worker<ImportJobData>(IMPORT_QUEUE_NAME, async (
             status: 'success',
             item: item.title
         });
+
+        // Check Batch Completion
+        // Check Batch Completion
+        const { jobId } = job.data;
+        if (jobId) {
+            const remaining = await redis.decr(`import_batch:${jobId}`);
+            if (remaining <= 0) {
+                const message = mode === 'custom-list'
+                    ? `Your list import is complete! Processed ${totalNr} items.`
+                    : `Your watch history import is complete! Processed ${totalNr} items.`;
+
+                await NotificationService.createAndSendBulk([userId], 'import_completed', message, {
+                    batchId: jobId,
+                    count: totalNr,
+                    mode
+                });
+
+                // Cleanup
+                await redis.del(`import_batch:${jobId}`);
+                console.log(`Import Batch ${jobId} Completed. Notification sent.`);
+            }
+        }
 
         return { success: true, title: item.title };
 

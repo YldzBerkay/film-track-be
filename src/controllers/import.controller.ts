@@ -112,6 +112,11 @@ export class ImportController {
             }
 
             const batchId = `history-${userId}-${Date.now()}`;
+            const client = await importQueue.client;
+            await client.set(`import_batch:${batchId}`, items.length);
+            // Set expire in case of stuck jobs? 24h
+            await client.expire(`import_batch:${batchId}`, 86400);
+
             const jobs = items.map((item, index) => ({
                 name: 'import-watch-history',
                 data: {
@@ -199,6 +204,10 @@ export class ImportController {
             }
 
             const batchId = `list-${userId}-${watchlistId}-${Date.now()}`;
+            const client = await importQueue.client;
+            await client.set(`import_batch:${batchId}`, items.length);
+            await client.expire(`import_batch:${batchId}`, 86400);
+
             const jobs = items.map((item, index) => ({
                 name: 'import-list',
                 data: {

@@ -24,7 +24,7 @@ const notificationSchema = new Schema<INotification>(
         },
         type: {
             type: String,
-            enum: ['follow', 'like', 'comment', 'mention', 'new_episode'],
+            enum: ['follow', 'like', 'comment', 'mention', 'new_episode', 'import_completed'],
             required: true
         },
         message: {
