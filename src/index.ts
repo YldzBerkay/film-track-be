@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import path from 'path';
 import cors from 'cors';
 import { createServer } from 'http';
 import { config } from './config/env';
@@ -21,6 +22,9 @@ TvTrackerService.initialize();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static assets (images, etc.)
+app.use('/assets', express.static(path.join(__dirname, '../assets')));
 
 // Routes
 app.get('/', (req: Request, res: Response) => {
