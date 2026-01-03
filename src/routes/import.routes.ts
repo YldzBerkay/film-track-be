@@ -31,4 +31,13 @@ router.post(
     ImportController.importWatchHistory
 );
 
+// POST /api/import/list - Import CSV as a custom watchlist
+router.post(
+    '/list',
+    authMiddleware,
+    csvUpload.single('file'),
+    ImportController.importList
+);
+
 export default router;
+

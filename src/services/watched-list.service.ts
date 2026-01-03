@@ -20,6 +20,7 @@ interface AddItemData {
     feedback?: 'like' | 'dislike' | null;  // Raw sentiment (decoupled from rating)
     watchedAt?: Date;
     isMoodPick?: boolean;
+    skipActivity?: boolean;  // Skip activity creation (for imports)
 }
 
 // Plain object type for lean() results
@@ -157,8 +158,8 @@ export class WatchedListService {
                 { new: true }
             );
 
-            // Create activity if rating/review provided
-            if (resultWatchedList && (item.rating || item.reviewText)) {
+            // Create activity if rating/review provided (skip for imports)
+            if (resultWatchedList && (item.rating || item.reviewText) && !item.skipActivity) {
                 await ActivityService.createActivityForRating({
                     userId,
                     type: 'rating',

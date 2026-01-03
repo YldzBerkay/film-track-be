@@ -8,6 +8,7 @@ import routes from './routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import { socketService } from './services/socket.service';
 import { TvTrackerService } from './services/tv-tracker.service';
+import './workers/import.worker'; // Start Import Worker
 
 const app = express();
 const httpServer = createServer(app);

@@ -266,6 +266,75 @@ export class TMDBService {
     }
   }
 
+  /**
+   * Find content by external ID (IMDB ID)
+   * Uses TMDB's /find endpoint for accurate lookup
+   */
+  static async findByExternalId(
+    imdbId: string,
+    lang?: string
+  ): Promise<{
+    result: TMDBMovie | TMDBTvShow | null;
+    mediaType: 'movie' | 'tv';
+    details: TMDBMovieDetails | TMDBTvShowDetails | null;
+    episodeInfo?: { seasonNumber: number; episodeNumber: number };
+  }> {
+    console.log(`[TMDB findByExternalId] Looking up IMDB ID: ${imdbId}`);
+
+    try {
+      const response = await this.client.get(`/find/${imdbId}`, {
+        params: {
+          external_source: 'imdb_id',
+          ...this.getLanguageParams(lang)
+        }
+      });
+
+      const data = response.data;
+
+      // Check for movie results first
+      if (data.movie_results && data.movie_results.length > 0) {
+        const movie = data.movie_results[0] as TMDBMovie;
+        console.log(`[TMDB findByExternalId] Found movie: "${movie.title}" (TMDB ID: ${movie.id})`);
+        const details = await this.getMovieDetails(movie.id.toString(), lang);
+        return { result: movie, mediaType: 'movie', details };
+      }
+
+      // Check for TV Episode results (resolve to parent show)
+      // PRIORITY: Check episodes first to capture episode-specific info (season/episode numbers)
+      if (data.tv_episode_results && data.tv_episode_results.length > 0) {
+        const episode = data.tv_episode_results[0];
+        if (episode.show_id) {
+          console.log(`[TMDB findByExternalId] Found TV Episode: "${episode.name}" (ID: ${episode.id}), resolving parent show ID: ${episode.show_id}`);
+          const details = await this.getShowDetails(episode.show_id.toString(), lang);
+          return {
+            result: details,
+            mediaType: 'tv',
+            details,
+            episodeInfo: {
+              seasonNumber: episode.season_number,
+              episodeNumber: episode.episode_number
+            }
+          };
+        }
+      }
+
+      // Check for TV results
+      if (data.tv_results && data.tv_results.length > 0) {
+        const show = data.tv_results[0] as TMDBTvShow;
+        console.log(`[TMDB findByExternalId] Found TV: "${show.name}" (TMDB ID: ${show.id})`);
+        const details = await this.getShowDetails(show.id.toString(), lang);
+        return { result: show, mediaType: 'tv', details };
+      }
+
+      // Nothing found
+      console.log(`[TMDB findByExternalId] No results for IMDB ID: ${imdbId}`);
+      return { result: null, mediaType: 'movie', details: null };
+    } catch (error) {
+      console.error(`[TMDB findByExternalId] Error looking up ${imdbId}:`, error);
+      return { result: null, mediaType: 'movie', details: null };
+    }
+  }
+
   static async searchTvShows(query: string, page: number = 1, lang?: string): Promise<TMDBSearchResponse<TMDBTvShow>> {
     try {
       const response = await this.client.get('/search/tv', {
