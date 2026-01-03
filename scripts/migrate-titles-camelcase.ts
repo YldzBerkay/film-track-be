@@ -23,7 +23,15 @@ const TITLE_MAPPING: { [key: string]: string } = {
     'Amatör Eleştirmen': 'criticAmateur',
     'Sinefil': 'cinephile',
     'Kültür Bekçisi': 'cultureGuardian',
-    'Sinema Üstadı': 'grandmaster'
+    'Sinema Üstadı': 'grandmaster',
+    // English Human Readable
+    'Novice': 'novice',
+    'Ticket Holder': 'ticketHolder',
+    'Movie Buff': 'movieBuff',
+    'Amateur Critic': 'criticAmateur',
+    'Cinephile': 'cinephile',
+    'Culture Guardian': 'cultureGuardian',
+    'Grandmaster': 'grandmaster'
 };
 
 async function migrateTitlesCamelCase() {
